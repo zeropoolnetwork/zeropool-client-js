@@ -5,32 +5,12 @@
   "repository": "git@github.com:zeropoolnetwork/zeropool-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
   "license": "(Apache-2.0 OR MIT)",
-  "compilerOptions": {
-    "lib": [
-      "es2015"
-    ]
-  },
   "main": "lib/index.js",
-  "types": "lib/index.d.ts",
-  "worker": "lib/worker.js",
-  "targets": {
-    "main": {
-      "source": "src/*.ts"
-    },
-    "worker": {
-      "source": "src/worker.ts",
-      "engines": {
-        "browsers": "> 0.5%, last 2 versions, not dead"
-      }
-    }
-  },
   "scripts": {
-    "check": "tsc --noEmit",
-    "watch": "parcel watch",
-    "build": "parcel build"
+    "build": "rm -rf lib/ && npx tsc && webpack --config webpack.worker.conf.js",
+    "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@swc/helpers": "^0.3.2",
     "comlink": "^4.3.1",
     "hdwallet-babyjub": "^0.0.1",
     "idb": "^7.0.0",
@@ -40,9 +20,9 @@
     "web3-utils": "^1.7.0"
   },
   "devDependencies": {
-    "@parcel/packager-ts": "^2.2.1",
-    "@parcel/transformer-typescript-types": "^2.2.1",
-    "parcel": "^2.2.1",
-    "typescript": ">=3.0.0"
+    "ts-loader": "^9.2.6",
+    "typescript": "^4.1.2",
+    "webpack": "^5.64.2",
+    "webpack-cli": "^4.9.1"
   }
 }
