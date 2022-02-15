@@ -58,9 +58,9 @@ async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, t
         await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
     }
 
-    if (!hash) {
-        throw new Error('Transaction failed');
-    }
+    // if (!hash) {
+    //     throw new Error('Transaction failed');
+    // }
 
     console.info(`Transaction successful: ${hash}`);
 

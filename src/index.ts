@@ -1,8 +1,9 @@
 import { wrap } from 'comlink';
+import * as libzeropool from 'libzeropool-rs-wasm-web';
+
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-import * as libzeropool from 'libzeropool-rs-wasm-web';
 
 export class ZeroPoolLibState {
   public fileCache: FileCache;
