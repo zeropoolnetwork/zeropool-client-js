@@ -20,6 +20,8 @@ export interface SnarkParams {
   treeVk?: VK;
 }
 
+/*
+ */
 export type Tokens = {
   [address: string]: Token;
 };
@@ -27,5 +29,4 @@ export type Tokens = {
 export interface Token {
   poolAddress: string;
   relayerUrl: string;
-  denominator: bigint;
 }

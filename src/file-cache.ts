@@ -1,4 +1,4 @@
-import { openDB, deleteDB, wrap, unwrap, IDBPDatabase, DBSchema } from 'idb';
+import { openDB, IDBPDatabase } from 'idb';
 
 const STORE_NAME = 'files';
 
