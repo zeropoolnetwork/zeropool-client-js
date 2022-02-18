@@ -1,30 +1,27 @@
-import Web3 from 'web3';
 import { Output } from 'libzeropool-rs-wasm-web';
 import { SnarkParams, Tokens } from '../config';
-import { ZeroPoolState } from '../state';
 export interface RelayerInfo {
     root: string;
     deltaIndex: string;
 }
-export declare class RelayerBackend {
-    private zpState;
+export declare class ZeropoolClient {
+    private zpStates;
     private worker;
-    private tokenContract;
     private web3;
     private snarkParams;
     private tokens;
-    constructor(tokens: Tokens, web3: Web3, state: ZeroPoolState, snarkParams: SnarkParams, worker: any);
-    getTokenBalance(address: string, tokenAddress: string): Promise<any>;
-    deposit(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<void>;
+    static create(sk: Uint8Array, tokens: Tokens, rpcUrl: string, snarkParams: SnarkParams, worker: any, networkName?: string): Promise<ZeropoolClient>;
+    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fee?: string): Promise<void>;
     transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<void>;
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<void>;
-    getTotalBalance(): string;
+    getTotalBalance(tokenAddress: string): string;
     /**
      * @returns [total, account, note]
      */
-    getBalances(): [string, string, string];
-    fetchTransactionsFromRelayer(tokenAddress: string): Promise<void>;
+    getBalances(tokenAddress: string): [string, string, string];
     updateState(tokenAddress: string): Promise<void>;
+    updateStateFromRelayer(tokenAddress: string): Promise<void>;
+    updateStateFromNode(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
      * @param raw hex-encoded transaction data

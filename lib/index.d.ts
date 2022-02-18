@@ -1,5 +1,6 @@
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
+export { ZeropoolClient } from './evm/client';
 export declare class ZeroPoolLibState {
     fileCache: FileCache;
     worker: any;
