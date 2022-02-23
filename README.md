@@ -2,7 +2,7 @@
 
 ## Example
 ```js
-import { init, ZeropoolClient } from 'zeropool-js';
+import { init, EvmZeropoolClient } from 'zeropool-js';
 
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
@@ -12,7 +12,18 @@ const snarkParams = {
 };
 
 init('/path/to/wasm', '/path/to/worker', snarkParams)
-  .then((ctx) => {
-      // some fields from `ctx` can be used in some parts of the library.
+  .then(async (ctx) => {
+      // Spending key
+      const sk = new Uint8Array(32);
+      const tokens = {
+        'token address': {
+          poolAddress: '...',
+          relayerUrl: '...',
+        }
+      };
+
+      const client = await EvmZeropoolClient.create(sk, tokens, rpcUrl, ctx.snarkParams, ctx.worker);
+
+      // client.deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fee: string = '0')
   });
 ```
