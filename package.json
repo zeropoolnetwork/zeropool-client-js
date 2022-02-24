@@ -1,5 +1,5 @@
 {
-  "name": "zeropool-js",
+  "name": "zeropool-client-js",
   "version": "0.1.0",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-js.git",

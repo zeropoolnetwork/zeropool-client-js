@@ -1,4 +1,4 @@
-# zeropool-js
+# zeropool-client-js
 
 ## Example
 ```js
@@ -11,10 +11,13 @@ const snarkParams = {
   treeVkUrl: '/path/to/tree/vk',
 };
 
-init('/path/to/wasm', '/path/to/worker', snarkParams)
+// Initialize the library.
+init('/path/to/wasm', '/path/to/worker.js', snarkParams)
   .then(async (ctx) => {
       // Spending key
       const sk = new Uint8Array(32);
+
+      // Configurations for each supported token.
       const tokens = {
         'token address': {
           poolAddress: '...',
@@ -22,8 +25,9 @@ init('/path/to/wasm', '/path/to/worker', snarkParams)
         }
       };
 
+
       const client = await EvmZeropoolClient.create(sk, tokens, rpcUrl, ctx.snarkParams, ctx.worker);
 
-      // client.deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fee: string = '0')
+      await client.deposit(tokenAddress, amountWei, (data) => sign(data));
   });
 ```
