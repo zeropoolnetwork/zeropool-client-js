@@ -1,8 +1,8 @@
 import Web3 from 'web3';
 
 import { TransactionData, Proof, Params, SnarkProof, UserAccount, VK } from 'libzeropool-rs-wasm-web';
-import { HexStringReader, HexStringWriter } from '../utils';
-import { CONSTANTS } from '../constants';
+import { HexStringReader, HexStringWriter } from './utils';
+import { CONSTANTS } from './constants';
 
 // Sizes in bytes
 const MEMO_META_SIZE: number = 8; // fee (u64)
@@ -30,7 +30,8 @@ export function txTypeToString(txType: TxType): string {
   }
 }
 
-export class EvmShieldedTx {
+/** The universal transaction data format used on most networks. */
+export class ShieldedTx {
   public selector: string;
   public nullifier: bigint;
   public outCommit: bigint;
@@ -50,8 +51,8 @@ export class EvmShieldedTx {
     snarkParams: { transferParams: Params; treeParams: Params; transferVk?: VK; treeVk?: VK; },
     web3: Web3,
     worker: any,
-  ): Promise<EvmShieldedTx> {
-    const tx = new EvmShieldedTx();
+  ): Promise<ShieldedTx> {
+    const tx = new ShieldedTx();
 
     const nextIndex = acc.nextTreeIndex() as bigint;
     let curIndex = nextIndex - BigInt(CONSTANTS.OUT + 1);
@@ -69,7 +70,7 @@ export class EvmShieldedTx {
     const rootBefore = acc.getRoot();
     const rootAfter = acc.getMerkleRootAfterCommitment(nextCommitmentIndex, txData.commitment_root);
 
-    // TODO: If not using worker
+    // TODO: If not using a worker
     // const txProof = Proof.tx(snarkParams.transferParams, txData.public, txData.secret);
     // const treeProof = Proof.tree(snarkParams.treeParams, {
     //   root_before: rootBefore,
@@ -155,8 +156,8 @@ export class EvmShieldedTx {
     return writer.toString();
   }
 
-  static decode(data: string): EvmShieldedTx {
-    let tx = new EvmShieldedTx();
+  static decode(data: string): ShieldedTx {
+    let tx = new ShieldedTx();
     let reader = new HexStringReader(data);
 
     tx.selector = reader.readHex(4)!;

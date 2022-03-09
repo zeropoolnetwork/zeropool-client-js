@@ -1,17 +1,11 @@
-import Web3 from 'web3';
-import { AbiItem, keccak256 } from 'web3-utils';
+import { AbiItem } from 'web3-utils';
 import { Contract } from 'web3-eth-contract';
 import { assembleAddress, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
 
-import { SnarkParams, Tokens } from '../config';
-import { hexToBuf } from '../utils';
-import { ZeroPoolState } from '../state';
-import { EvmShieldedTx, parseHashes, TxType } from './tx';
-import { CONSTANTS } from '../constants';
-import { toCompactSignature } from './utils';
-
-const STATE_STORAGE_PREFIX = 'zp.eth.state';
-const MESSAGE_EVENT_SIGNATURE = 'Message(uint256,bytes32,bytes)';
+import { SnarkParams, Tokens } from './config';
+import { hexToBuf, toCompactSignature } from './utils';
+import { ZeroPoolState } from './state';
+import { parseHashes, TxType } from './tx';
 
 export interface RelayerInfo {
   root: string;
@@ -84,20 +78,35 @@ async function info(relayerUrl: string): Promise<RelayerInfo> {
   return await res.json();
 }
 
+export interface ClientConfig {
+  /** Spending key. */
+  sk: Uint8Array;
+  /** A map of supported tokens (token address => token params). */
+  tokens: Tokens;
+  /** Loaded zkSNARK paramaterers. */
+  snarkParams: SnarkParams;
+  /** A worker instance acquired through init() function of this package. */
+  worker: any;
+  /** The name of the network is only used for storage. */
+  networkName: string;
+  /** Should the signature be compact (for EVM based blockchains)  */
+  compactSignature: boolean;
+}
+
 export class ZeropoolClient {
   private zpStates: { [tokenAddress: string]: ZeroPoolState };
   private worker: any;
-  private web3: Web3;
   private snarkParams: SnarkParams;
   private tokens: Tokens;
+  private config: ClientConfig;
 
-  public static async create(sk: Uint8Array, tokens: Tokens, rpcUrl: string, snarkParams: SnarkParams, worker: any, networkName = 'ethereum'): Promise<ZeropoolClient> {
+  public static async create(config: ClientConfig): Promise<ZeropoolClient> {
     const client = new ZeropoolClient();
     client.zpStates = {};
-    client.worker = worker;
-    client.web3 = new Web3(rpcUrl);
-    client.snarkParams = snarkParams;
-    client.tokens = tokens;
+    client.worker = config.worker;
+    client.snarkParams = config.snarkParams;
+    client.tokens = config.tokens;
+    client.config = config;
 
     const abi: AbiItem[] = [
       {
@@ -115,17 +124,17 @@ export class ZeropoolClient {
       }
     ];
 
-    for (const [address, token] of Object.entries(tokens)) {
+    for (const [address, _token] of Object.entries(config.tokens)) {
       const contract = new Contract(abi, address);
       const denominator = await contract.methods.denominator().call();
-      client.zpStates[address] = await ZeroPoolState.create(sk, networkName, denominator);
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, config.networkName, denominator);
     }
 
     return client;
   }
 
   // TODO: generalize wei/gwei
-  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fee: string = '0'): Promise<void> {
+  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<void> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -141,13 +150,24 @@ export class ZeropoolClient {
     }
 
     const nullifier = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
-    const signature = await sign(nullifier);
-    const compactSignature = toCompactSignature(signature).slice(2);
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, compactSignature);
+    // TODO: Sign fromAddress as well?
+    const signature = await sign(nullifier);
+    let fullSignature = signature;
+    if (fromAddress) {
+      fullSignature = fromAddress + signature;
+    }
+
+    if (this.config.compactSignature) {
+      fullSignature = toCompactSignature(fullSignature);
+    }
+
+    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
   }
 
   public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<void> {
+    await this.updateState(tokenAddress);
+
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -174,6 +194,8 @@ export class ZeropoolClient {
   }
 
   public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<void> {
+    await this.updateState(tokenAddress);
+
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -194,22 +216,22 @@ export class ZeropoolClient {
   // TODO: Transaction list
 
 
-  public getTotalBalance(tokenAddress: string): string {
+  public async getTotalBalance(tokenAddress: string): Promise<string> {
+    await this.updateState(tokenAddress);
+
     return this.zpStates[tokenAddress].getTotalBalance();
   }
 
   /**
    * @returns [total, account, note]
    */
-  public getBalances(tokenAddress: string): [string, string, string] {
+  public async getBalances(tokenAddress: string): Promise<[string, string, string]> {
+    await this.updateState(tokenAddress);
+
     return this.zpStates[tokenAddress].getBalances();
   }
 
   public async updateState(tokenAddress: string): Promise<void> {
-    return this.updateStateFromNode(tokenAddress);
-  }
-
-  public async updateStateFromRelayer(tokenAddress: string): Promise<void> {
     const OUT = 128;
 
     const token = this.tokens[tokenAddress];
@@ -225,57 +247,59 @@ export class ZeropoolClient {
     }
   }
 
-  public async updateStateFromNode(tokenAddress: string) {
-    const STORAGE_PREFIX = `${STATE_STORAGE_PREFIX}.latestCheckedBlock`;
+  // TODO: Make updateState implementation configurable through DI.
 
-    // TODO: Fetch txs from relayer
-    // await this.fetchTransactionsFromRelayer(tokenAddress);
+  // public async updateStateFromNode(tokenAddress: string) {
+  //   const STORAGE_PREFIX = `${STATE_STORAGE_PREFIX}.latestCheckedBlock`;
 
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-    const curBlockNumber = await this.web3.eth.getBlockNumber();
-    const latestCheckedBlock = Number(localStorage.getItem(STORAGE_PREFIX)) || 0;
+  //   // TODO: Fetch txs from relayer
+  //   // await this.fetchTransactionsFromRelayer(tokenAddress);
 
-    // moslty useful for local testing, since getPastLogs always returns at least one latest event
-    if (curBlockNumber === latestCheckedBlock) {
-      return;
-    }
+  //   const token = this.tokens[tokenAddress];
+  //   const state = this.zpStates[tokenAddress];
+  //   const curBlockNumber = await this.web3.eth.getBlockNumber();
+  //   const latestCheckedBlock = Number(localStorage.getItem(STORAGE_PREFIX)) || 0;
 
-    console.info(`Processing contract events since block ${latestCheckedBlock} to ${curBlockNumber}`);
+  //   // moslty useful for local testing, since getPastLogs always returns at least one latest event
+  //   if (curBlockNumber === latestCheckedBlock) {
+  //     return;
+  //   }
 
-    const logs = await this.web3.eth.getPastLogs({
-      fromBlock: latestCheckedBlock,
-      toBlock: curBlockNumber,
-      address: token.poolAddress,
-      topics: [
-        keccak256(MESSAGE_EVENT_SIGNATURE)
-      ]
-    });
+  //   console.info(`Processing contract events since block ${latestCheckedBlock} to ${curBlockNumber}`);
 
-    const STEP: number = (CONSTANTS.OUT + 1);
-    let index = Number(state.account.nextTreeIndex());
-    for (const log of logs) {
-      // TODO: Batch getTransaction
-      const tx = await this.web3.eth.getTransaction(log.transactionHash);
-      const message = tx.input;
-      const txData = EvmShieldedTx.decode(message);
+  //   const logs = await this.web3.eth.getPastLogs({
+  //     fromBlock: latestCheckedBlock,
+  //     toBlock: curBlockNumber,
+  //     address: token.poolAddress,
+  //     topics: [
+  //       keccak256(MESSAGE_EVENT_SIGNATURE)
+  //     ]
+  //   });
 
-      let hashes;
-      try {
-        hashes = txData.hashes;
-      } catch (err) {
-        console.info(`❌ Skipping invalid transaction: invalid number of outputs ${err.numOutputs}`);
-        continue;
-      }
+  //   const STEP: number = (CONSTANTS.OUT + 1);
+  //   let index = Number(state.account.nextTreeIndex());
+  //   for (const log of logs) {
+  //     // TODO: Batch getTransaction
+  //     const tx = await this.web3.eth.getTransaction(log.transactionHash);
+  //     const message = tx.input;
+  //     const txData = EvmShieldedTx.decode(message);
 
-      let res = this.cacheShieldedTx(tokenAddress, txData.ciphertext, hashes, index);
-      if (res) {
-        index += STEP;
-      }
-    }
+  //     let hashes;
+  //     try {
+  //       hashes = txData.hashes;
+  //     } catch (err) {
+  //       console.info(`❌ Skipping invalid transaction: invalid number of outputs ${err.numOutputs}`);
+  //       continue;
+  //     }
 
-    localStorage.setItem(STORAGE_PREFIX, curBlockNumber.toString());
-  }
+  //     let res = this.cacheShieldedTx(tokenAddress, txData.ciphertext, hashes, index);
+  //     if (res) {
+  //       index += STEP;
+  //     }
+  //   }
+
+  //   localStorage.setItem(STORAGE_PREFIX, curBlockNumber.toString());
+  // }
 
   /**
    * Attempt to extract and save usable account/notes from transaction data.

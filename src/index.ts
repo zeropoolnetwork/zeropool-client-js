@@ -3,7 +3,8 @@ import * as libzeropool from 'libzeropool-rs-wasm-web';
 
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
-export { ZeropoolClient as EvmZeropoolClient } from './evm/client';
+
+export { ZeropoolClient } from './client';
 
 export class ZeroPoolLibState {
   public fileCache: FileCache;
