@@ -10,7 +10,8 @@ export declare enum TxType {
     Withdraw = "0002"
 }
 export declare function txTypeToString(txType: TxType): string;
-export declare class EvmShieldedTx {
+/** The universal transaction data format used on most networks. */
+export declare class ShieldedTx {
     selector: string;
     nullifier: bigint;
     outCommit: bigint;
@@ -27,14 +28,14 @@ export declare class EvmShieldedTx {
         treeParams: Params;
         transferVk?: VK;
         treeVk?: VK;
-    }, web3: Web3, worker: any): Promise<EvmShieldedTx>;
+    }, web3: Web3, worker: any): Promise<ShieldedTx>;
     get ciphertext(): string;
     get hashes(): string[];
     /**
      * Returns encoded transaction ready to use as data for the smart contract.
      */
     encode(): string;
-    static decode(data: string): EvmShieldedTx;
+    static decode(data: string): ShieldedTx;
 }
 export declare function parseHashes(ciphertext: string): string[];
 export declare function flattenSnarkProof(p: SnarkProof): bigint[];
