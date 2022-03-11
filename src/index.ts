@@ -1,5 +1,5 @@
 import { wrap } from 'comlink';
-import * as libzeropool from 'libzeropool-rs-wasm-web';
+import { Params, default as initWasm } from 'libzeropool-rs-wasm-web';
 
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
@@ -21,10 +21,12 @@ export async function init(wasmPath: string, workerPath: string, snarkParams: Sn
     treeParams: snarkParams.treeParamsUrl,
   });
 
+  initWasm(wasmPath);
+
   const txParamsData = await fileCache.getOrCache(snarkParams.transferParamsUrl);
-  const transferParams = libzeropool.Params.fromBinary(new Uint8Array(txParamsData));
+  const transferParams = Params.fromBinary(new Uint8Array(txParamsData));
   const treeParamsData = await fileCache.getOrCache(snarkParams.treeParamsUrl);
-  const treeParams = libzeropool.Params.fromBinary(new Uint8Array(treeParamsData));
+  const treeParams = Params.fromBinary(new Uint8Array(treeParamsData));
   const transferVk = await (await fetch(snarkParams.transferVkUrl)).json();
   const treeVk = await (await fetch(snarkParams.treeVkUrl)).json();
 
