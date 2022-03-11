@@ -4,6 +4,7 @@ import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature } from './utils';
 import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
+import { NetworkBackend } from './networks/network';
 
 export interface RelayerInfo {
   root: string;
@@ -86,9 +87,8 @@ export interface ClientConfig {
   /** A worker instance acquired through init() function of this package. */
   worker: any;
   /** The name of the network is only used for storage. */
-  networkName: string;
-  /** Should the signature be compact (for EVM based blockchains)  */
-  compactSignature: boolean;
+  networkName: string | undefined;
+  network: NetworkBackend;
 }
 
 export class ZeropoolClient {
@@ -106,31 +106,22 @@ export class ZeropoolClient {
     client.tokens = config.tokens;
     client.config = config;
 
-    // TODO: Implement backend for different networks.
-    // const abi: AbiItem[] = [
-    //   {
-    //     constant: true,
-    //     inputs: [],
-    //     name: 'denominator',
-    //     outputs: [
-    //       {
-    //         name: '',
-    //         type: 'uint256',
-    //       }
-    //     ],
-    //     payable: false,
-    //     type: 'function',
-    //   }
-    // ];
-
-    // const contract = new this.web3.eth.Contract(abi, address) as Contract;
-    // const denominator = await contract.methods.denominator().call();
+    let networkName = config.networkName;
+    if (!networkName) {
+      networkName = config.network.defaultNetworkName();
+    }
 
     for (const [address, token] of Object.entries(config.tokens)) {
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, config.networkName, BigInt(token.denominator));
+      const denominator = await config.network.getDenominator(token.poolAddress);
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, BigInt(denominator));
     }
 
     return client;
+  }
+
+  public generateAddress(tokenAddress: string): string {
+    const state = this.zpStates[tokenAddress];
+    return state.account.generateAddress();
   }
 
   // TODO: generalize wei/gwei
@@ -158,7 +149,7 @@ export class ZeropoolClient {
       fullSignature = fromAddress + signature;
     }
 
-    if (this.config.compactSignature) {
+    if (this.config.network.isSignatureCompact()) {
       fullSignature = toCompactSignature(fullSignature);
     }
 

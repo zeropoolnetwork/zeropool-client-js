@@ -1,5 +1,6 @@
 import { Output } from 'libzeropool-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
+import { NetworkBackend } from './networks/network';
 export interface RelayerInfo {
     root: string;
     deltaIndex: string;
@@ -14,9 +15,8 @@ export interface ClientConfig {
     /** A worker instance acquired through init() function of this package. */
     worker: any;
     /** The name of the network is only used for storage. */
-    networkName: string;
-    /** Should the signature be compact (for EVM based blockchains)  */
-    compactSignature: boolean;
+    networkName: string | undefined;
+    network: NetworkBackend;
 }
 export declare class ZeropoolClient {
     private zpStates;
@@ -25,6 +25,7 @@ export declare class ZeropoolClient {
     private tokens;
     private config;
     static create(config: ClientConfig): Promise<ZeropoolClient>;
+    generateAddress(tokenAddress: string): string;
     deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<void>;
     transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<void>;
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<void>;
