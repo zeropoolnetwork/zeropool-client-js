@@ -1,8 +1,8 @@
-import Web3 from 'web3';
+import { Contract } from 'web3-eth-contract';
 import { NetworkBackend } from './network';
 export declare class EvmNetwork implements NetworkBackend {
-    web3: Web3;
-    static create(rpcUrl: string, contractAddress: string): Promise<void>;
+    contract: Contract;
+    constructor(rpcUrl: string, contractAddress: string);
     getDenominator(contractAddress: string): Promise<string>;
     isSignatureCompact(): boolean;
     defaultNetworkName(): string;

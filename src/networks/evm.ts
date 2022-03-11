@@ -5,9 +5,9 @@ import { Contract } from 'web3-eth-contract'
 import { NetworkBackend } from './network';
 
 export class EvmNetwork implements NetworkBackend {
-    web3: Web3;
+    contract: Contract;
 
-    public static async create(rpcUrl: string, contractAddress: string) {
+    constructor(rpcUrl: string, contractAddress: string) {
         const web3 = new Web3(rpcUrl);
 
         const abi: AbiItem[] = [
@@ -26,12 +26,12 @@ export class EvmNetwork implements NetworkBackend {
             }
         ];
 
-        const contract = new web3.eth.Contract(abi, contractAddress) as Contract;
-        const denominator = await contract.methods.denominator().call();
+        this.contract = new web3.eth.Contract(abi, contractAddress) as Contract;
     }
 
-    getDenominator(contractAddress: string): Promise<string> {
-        throw new Error('Method not implemented.');
+    async getDenominator(contractAddress: string): Promise<string> {
+        this.contract.options.address = contractAddress;
+        return await this.contract.methods.denominator().call();;
     }
 
     isSignatureCompact(): boolean {
