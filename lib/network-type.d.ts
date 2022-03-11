@@ -4,7 +4,9 @@ export declare enum NetworkType {
     xdai = "xdai",
     aurora = "aurora",
     near = "near",
-    waves = "waves"
+    waves = "waves",
+    polkadot = "polkadot",
+    kusama = "kusama"
 }
 export declare namespace NetworkType {
     function derivationPath(network: NetworkType, account: number): string;

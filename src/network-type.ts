@@ -7,6 +7,8 @@ export enum NetworkType {
   aurora = 'aurora',
   near = 'near',
   waves = 'waves',
+  polkadot = 'polkadot',
+  kusama = 'kusama',
 }
 
 export namespace NetworkType {
@@ -31,7 +33,10 @@ export namespace NetworkType {
       case NetworkType.near:
         return `/${account}'`;
       case NetworkType.waves:
-        return `/${account}'/0'/0'`
+        return `/${account}'/0'/0'`;
+      case NetworkType.polkadot:
+      case NetworkType.kusama:
+        return `/${account}'`;
     }
   }
 
@@ -48,6 +53,10 @@ export namespace NetworkType {
         return 397;
       case NetworkType.waves:
         return 5741564;
+      case NetworkType.polkadot:
+        return 354;
+      case NetworkType.kusama:
+        return 434;
     }
   }
 }
