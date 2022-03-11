@@ -5,7 +5,7 @@
   "repository": "git@github.com:zeropoolnetwork/zeropool-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
   "license": "(Apache-2.0 OR MIT)",
-  "main": "src/index.ts",
+  "main": "lib/index.js",
   "scripts": {
     "build": "rm -rf lib/ && npx tsc && webpack --config webpack.worker.conf.js",
     "check": "tsc --noEmit"
