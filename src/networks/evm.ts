@@ -31,7 +31,7 @@ export class EvmNetwork implements NetworkBackend {
 
     async getDenominator(contractAddress: string): Promise<string> {
         this.contract.options.address = contractAddress;
-        return await this.contract.methods.denominator().call();;
+        return await this.contract.methods.denominator().call();
     }
 
     isSignatureCompact(): boolean {
@@ -41,5 +41,4 @@ export class EvmNetwork implements NetworkBackend {
     defaultNetworkName(): string {
         return 'ethereum';
     }
-
 }

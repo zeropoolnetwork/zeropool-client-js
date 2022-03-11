@@ -5,6 +5,7 @@ import { hexToBuf, toCompactSignature } from './utils';
 import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
+import { CONSTANTS } from './constants';
 
 export interface RelayerInfo {
   root: string;
@@ -12,10 +13,7 @@ export interface RelayerInfo {
 }
 
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
-  const url = new URL('/transactions', relayerUrl);
-  url.searchParams.set('offset', offset.toString());
-  url.searchParams.set('limit', limit.toString());
-
+  const url = new URL(`/transactions/${limit}/${offset}`, relayerUrl);
   const res = await (await fetch(url.toString())).json();
 
   return res;
@@ -222,14 +220,21 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getBalances();
   }
 
+  // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
-    const OUT = 128;
+    const OUT = CONSTANTS.OUT + 1;
 
+    const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
-    let totalNumTx = 100;
-    for (let i = 0; i < totalNumTx; i += OUT) { // FIXME: step
-      const data = await fetchTransactions(token.relayerUrl, BigInt(i), 100);
+    const startIndex = Number(zpState.account.nextTreeIndex());
+    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+    const limit = 100;
+
+    for (let i = startIndex; i < nextIndex + limit * OUT; i += limit * OUT) {
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+      const data = await fetchTransactions(token.relayerUrl, BigInt(i), limit);
+      console.info(`Got ${data.length} transactions from relayer`);
 
       for (let tx of data) {
         let hashes = parseHashes(tx);
@@ -324,7 +329,6 @@ export class ZeropoolClient {
     }
 
     console.debug('New balance:', state.account.totalBalance());
-    console.debug('New state:', state.account.getWholeState());
 
     return true;
   }
