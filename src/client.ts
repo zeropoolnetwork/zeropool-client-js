@@ -1,5 +1,3 @@
-import { AbiItem } from 'web3-utils';
-import { Contract } from 'web3-eth-contract';
 import { assembleAddress, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
@@ -108,26 +106,28 @@ export class ZeropoolClient {
     client.tokens = config.tokens;
     client.config = config;
 
-    const abi: AbiItem[] = [
-      {
-        constant: true,
-        inputs: [],
-        name: 'denominator',
-        outputs: [
-          {
-            name: '',
-            type: 'uint256',
-          }
-        ],
-        payable: false,
-        type: 'function',
-      }
-    ];
+    // TODO: Implement backend for different networks.
+    // const abi: AbiItem[] = [
+    //   {
+    //     constant: true,
+    //     inputs: [],
+    //     name: 'denominator',
+    //     outputs: [
+    //       {
+    //         name: '',
+    //         type: 'uint256',
+    //       }
+    //     ],
+    //     payable: false,
+    //     type: 'function',
+    //   }
+    // ];
 
-    for (const [address, _token] of Object.entries(config.tokens)) {
-      const contract = new Contract(abi, address);
-      const denominator = await contract.methods.denominator().call();
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, config.networkName, denominator);
+    // const contract = new this.web3.eth.Contract(abi, address) as Contract;
+    // const denominator = await contract.methods.denominator().call();
+
+    for (const [address, token] of Object.entries(config.tokens)) {
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, config.networkName, BigInt(token.denominator));
     }
 
     return client;

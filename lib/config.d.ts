@@ -22,4 +22,5 @@ export declare type Tokens = {
 export interface Token {
     poolAddress: string;
     relayerUrl: string;
+    denominator: string;
 }
