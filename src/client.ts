@@ -242,7 +242,8 @@ export class ZeropoolClient {
           break; // the relayer responds with nulls when there are not transactions
         }
 
-        let hashes = parseHashes(tx);
+        const memo = tx.slice(64); // Skip commitment
+        const hashes = parseHashes(memo);
         this.cacheShieldedTx(tokenAddress, tx, hashes, i);
       }
     }
