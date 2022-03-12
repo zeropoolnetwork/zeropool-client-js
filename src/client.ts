@@ -237,6 +237,10 @@ export class ZeropoolClient {
       console.info(`Got ${data.length} transactions from relayer`);
 
       for (let tx of data) {
+        if (!tx) {
+          break; // the relayer responds with nulls when there are not transactions
+        }
+
         let hashes = parseHashes(tx);
         this.cacheShieldedTx(tokenAddress, tx, hashes, i);
       }
