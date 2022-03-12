@@ -1,7 +1,7 @@
 import { assembleAddress, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { hexToBuf, toCompactSignature } from './utils';
+import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
 import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -144,7 +144,8 @@ export class ZeropoolClient {
     const signature = await sign(nullifier);
     let fullSignature = signature;
     if (fromAddress) {
-      fullSignature = fromAddress + signature;
+      const addr = truncateHexPrefix(fromAddress);
+      fullSignature = addr + signature;
     }
 
     if (this.config.network.isSignatureCompact()) {

@@ -47,6 +47,13 @@ export function bigintToArrayLe(num: bigint): Uint8Array {
   return result;
 }
 
+export function truncateHexPrefix(data: string): string {
+  if (data.startsWith('0x')) {
+    data = data.slice(2);
+  }
+
+  return data;
+}
 
 export function hexToBuf(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
