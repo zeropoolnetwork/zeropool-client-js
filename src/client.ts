@@ -141,7 +141,7 @@ export class ZeropoolClient {
     const nullifier = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
 
     // TODO: Sign fromAddress as well?
-    const signature = await sign(nullifier);
+    const signature = truncateHexPrefix(await sign(nullifier));
     let fullSignature = signature;
     if (fromAddress) {
       const addr = truncateHexPrefix(fromAddress);
