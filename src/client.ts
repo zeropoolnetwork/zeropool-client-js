@@ -13,7 +13,7 @@ export interface RelayerInfo {
 }
 
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
-  const url = new URL(`/transactions/${limit}/${offset}`, relayerUrl);
+  const url = new URL(`/transactions?offset=${offset}&limit=${limit}`, relayerUrl);
   const res = await (await fetch(url.toString())).json();
 
   return res;
@@ -232,20 +232,19 @@ export class ZeropoolClient {
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
     const limit = 100;
 
-    for (let i = startIndex; i < nextIndex + limit * OUT; i += limit * OUT) {
-      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-      const data = await fetchTransactions(token.relayerUrl, BigInt(i), limit);
-      console.info(`Got ${data.length} transactions from relayer`);
 
-      for (let tx of data) {
-        if (!tx) {
-          break; // the relayer responds with nulls when there are not transactions
-        }
+    console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+    const txs = await fetchTransactions(token.relayerUrl, BigInt(startIndex), limit);
+    for (let i = 0; i < txs.length; ++i) {
+      const tx = txs[i];
 
-        const memo = tx.slice(64); // Skip commitment
-        const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, i);
+      if (!tx) {
+        continue;
       }
+
+      const memo = tx.slice(64); // Skip commitment
+      const hashes = parseHashes(memo);
+      this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * (CONSTANTS.OUT + 1));
     }
   }
 
