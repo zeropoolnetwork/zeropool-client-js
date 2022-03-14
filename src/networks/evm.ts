@@ -7,7 +7,7 @@ import { NetworkBackend } from './network';
 export class EvmNetwork implements NetworkBackend {
     contract: Contract;
 
-    constructor(rpcUrl: string, contractAddress: string) {
+    constructor(rpcUrl: string) {
         const web3 = new Web3(rpcUrl);
 
         const abi: AbiItem[] = [
@@ -26,7 +26,7 @@ export class EvmNetwork implements NetworkBackend {
             }
         ];
 
-        this.contract = new web3.eth.Contract(abi, contractAddress) as Contract;
+        this.contract = new web3.eth.Contract(abi) as Contract;
     }
 
     async getDenominator(contractAddress: string): Promise<string> {
