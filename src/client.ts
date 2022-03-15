@@ -13,7 +13,7 @@ export interface RelayerInfo {
 }
 
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
-  const url = new URL(`/transactions?offset=${offset}&limit=${limit}`, relayerUrl);
+  const url = new URL(`/transactions/${limit}/${offset}`, relayerUrl);
   const res = await (await fetch(url.toString())).json();
 
   return res;
