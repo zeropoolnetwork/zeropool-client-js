@@ -230,22 +230,25 @@ export class ZeropoolClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
-    const limit = 100;
-
 
     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-    const txs = await fetchTransactions(token.relayerUrl, BigInt(startIndex), limit);
-    for (let i = 0; i < txs.length; ++i) {
-      const tx = txs[i];
+    let txs;
+    let curBatch = 0;
+    do {
+      txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex), 100)).filter((val) => !!val);
+      for (let i = curBatch; i < curBatch + txs.length; ++i) {
+        const tx = txs[i];
 
-      if (!tx) {
-        continue;
+        if (!tx) {
+          continue;
+        }
+
+        const memo = tx.slice(64); // Skip commitment
+        const hashes = parseHashes(memo);
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * (CONSTANTS.OUT + 1));
+        ++curBatch;
       }
-
-      const memo = tx.slice(64); // Skip commitment
-      const hashes = parseHashes(memo);
-      this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * (CONSTANTS.OUT + 1));
-    }
+    } while (txs.length > 0);
   }
 
   // TODO: Make updateState implementation configurable through DI.
