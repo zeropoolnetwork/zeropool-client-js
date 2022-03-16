@@ -232,10 +232,11 @@ export class ZeropoolClient {
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
     let txs;
     let curBatch = 0;
     do {
-      txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex), 100)).filter((val) => !!val);
+      txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), 100)).filter((val) => !!val);
       for (let i = curBatch; i < curBatch + txs.length; ++i) {
         const tx = txs[i];
 
@@ -245,7 +246,7 @@ export class ZeropoolClient {
 
         const memo = tx.slice(64); // Skip commitment
         const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * (CONSTANTS.OUT + 1));
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * OUTPLUSONE);
         ++curBatch;
       }
     } while (txs.length > 0);
