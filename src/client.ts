@@ -225,7 +225,7 @@ export class ZeropoolClient {
 
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
-    const OUT = CONSTANTS.OUT + 1;
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
@@ -234,12 +234,16 @@ export class ZeropoolClient {
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-    const OUTPLUSONE = CONSTANTS.OUT + 1;
-    let txs;
     let curBatch = 0;
-    do {
-      txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), 100)).filter((val) => !!val);
-      for (let i = curBatch; i < curBatch + txs.length; ++i) {
+    while (true) {
+      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), 100))
+        .filter((val) => !!val);
+
+      if (txs.length === 0) {
+        break;
+      }
+
+      for (let i = 0; i < txs.length; ++i) {
         const tx = txs[i];
 
         if (!tx) {
@@ -248,10 +252,10 @@ export class ZeropoolClient {
 
         const memo = tx.slice(64); // Skip commitment
         const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + i * OUTPLUSONE);
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch + i) * OUTPLUSONE);
         ++curBatch;
       }
-    } while (txs.length > 0);
+    };
   }
 
   // TODO: Make updateState implementation configurable through DI.
