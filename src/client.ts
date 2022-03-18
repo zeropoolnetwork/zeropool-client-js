@@ -238,7 +238,7 @@ export class ZeropoolClient {
 
     let curBatch = 0;
     while (true) {
-      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), BATCH_SIZE))
+      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
         .filter((val) => !!val);
 
       if (txs.length === 0) {
@@ -254,9 +254,10 @@ export class ZeropoolClient {
 
         const memo = tx.slice(64); // Skip commitment
         const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE * OUTPLUSONE) + (i * OUTPLUSONE));
-        ++curBatch;
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
       }
+
+      ++curBatch;
     };
   }
 
