@@ -254,7 +254,7 @@ export class ZeropoolClient {
 
         const memo = tx.slice(64); // Skip commitment
         const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + curBatch * OUTPLUSONE + i * OUTPLUSONE);
         ++curBatch;
       }
     };
