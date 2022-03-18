@@ -226,6 +226,7 @@ export class ZeropoolClient {
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
+    const BATCH_SIZE = 100;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
@@ -234,9 +235,10 @@ export class ZeropoolClient {
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+
     let curBatch = 0;
     while (true) {
-      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), 100))
+      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * OUTPLUSONE), BATCH_SIZE))
         .filter((val) => !!val);
 
       if (txs.length === 0) {
@@ -252,7 +254,7 @@ export class ZeropoolClient {
 
         const memo = tx.slice(64); // Skip commitment
         const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch + i) * OUTPLUSONE);
+        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
         ++curBatch;
       }
     };
