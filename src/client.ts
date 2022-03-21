@@ -21,6 +21,7 @@ async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: numb
   return res;
 }
 
+// returns transaction job ID
 async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, txType: TxType, depositSignature?: string): Promise<string> {
   const url = new URL('/transaction', relayerUrl);
   const res = await fetch(url.toString(), { method: 'POST', body: JSON.stringify({ proof, memo, txType, depositSignature }) });
@@ -31,32 +32,7 @@ async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, t
   }
 
   const json = await res.json();
-
-  const INTERVAL_MS = 1000;
-  let hash;
-  while (true) {
-    const job = await getJob(relayerUrl, json.jobId);
-
-    if (job === null) {
-      console.error(`Job ${json.jobId} not found.`);
-      throw new Error('Job not found');
-    } else if (job.state === 'failed') {
-      throw new Error('Transaction failed');
-    } else if (job.state = 'completed') {
-      hash = job.txHash;
-      break;
-    }
-
-    await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
-  }
-
-  // if (!hash) {
-  //     throw new Error('Transaction failed');
-  // }
-
-  console.info(`Transaction successful: ${hash}`);
-
-  return hash;
+  return json.jobId;
 }
 
 async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string } | null> {
@@ -125,7 +101,7 @@ export class ZeropoolClient {
   }
 
   // TODO: generalize wei/gwei
-  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<void> {
+  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -154,10 +130,10 @@ export class ZeropoolClient {
       fullSignature = toCompactSignature(fullSignature);
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
   }
 
-  public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<void> {
+  public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -182,10 +158,10 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
-  public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<void> {
+  public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -202,7 +178,34 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+  }
+
+  // return transaction hash on success or throw an error
+  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string> {
+    const token = this.tokens[tokenAddress];
+
+    const INTERVAL_MS = 1000;
+    let hash;
+    while (true) {
+      const job = await getJob(token.relayerUrl, jobId);
+
+      if (job === null) {
+        console.error(`Job ${jobId} not found.`);
+        throw new Error('Job ${jobId} not found');
+      } else if (job.state === 'failed') {
+        throw new Error('Transaction [job ${jobId}] failed');
+      } else if (job.state === 'completed') {
+        hash = job.txHash;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    console.info(`Transaction [job ${jobId}] successful: ${hash}`);
+
+    return hash;
   }
 
   // TODO: Transaction list
