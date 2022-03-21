@@ -234,35 +234,39 @@ export class ZeropoolClient {
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
-    console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+    if (nextIndex > startIndex) {
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
-    let curBatch = 0;
-    let isLastBatch = false;
-    do {
-      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
-        .filter((val) => !!val);
+      let curBatch = 0;
+      let isLastBatch = false;
+      do {
+        const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
+          .filter((val) => !!val);
 
-      // TODO: Error handling 
+        // TODO: Error handling 
 
-      if (txs.length < BATCH_SIZE) {
-        isLastBatch = true;
-      }
-
-      for (let i = 0; i < txs.length; ++i) {
-        const tx = txs[i];
-
-        if (!tx) {
-          continue;
+        if (txs.length < BATCH_SIZE) {
+          isLastBatch = true;
         }
 
-        const memo = tx.slice(64); // Skip commitment
-        const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
-      }
+        for (let i = 0; i < txs.length; ++i) {
+          const tx = txs[i];
 
-      ++curBatch;
+          if (!tx) {
+            continue;
+          }
 
-    } while(!isLastBatch);
+          const memo = tx.slice(64); // Skip commitment
+          const hashes = parseHashes(memo);
+          this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+        }
+
+        ++curBatch;
+
+      } while(!isLastBatch);
+    } else {
+      console.log(`Local state is up to date @${startIndex}...`);
+    }
   }
 
   // TODO: Make updateState implementation configurable through DI.
