@@ -35,6 +35,7 @@ export declare class ZeropoolClient {
      * @returns [total, account, note]
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
+    rawState(tokenAddress: string): Promise<any>;
     updateState(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.

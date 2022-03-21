@@ -35,6 +35,10 @@ export class ZeroPoolState {
     return [total.toString(), acc.toString(), note.toString()];
   }
 
+  public rawState(): any {
+    return this.account.getWholeState();
+  }
+
   public free(): void {
     this.account.free();
   }

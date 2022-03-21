@@ -226,6 +226,10 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getBalances();
   }
 
+  public async rawState(tokenAddress: string): Promise<any> {
+    return await this.zpStates[tokenAddress].rawState();
+  }
+
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
