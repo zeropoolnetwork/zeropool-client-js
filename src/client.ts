@@ -195,7 +195,7 @@ export class ZeropoolClient {
     const addressBin = hexToBuf(address);
 
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: amountWei, energy_amount: '0' });
+    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
