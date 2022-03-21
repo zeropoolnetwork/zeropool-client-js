@@ -237,12 +237,15 @@ export class ZeropoolClient {
     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
     let curBatch = 0;
-    while (true) {
+    let isLastBatch = false;
+    do {
       const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
         .filter((val) => !!val);
 
-      if (txs.length === 0) {
-        break;
+      // TODO: Error handling 
+
+      if (txs.length < BATCH_SIZE) {
+        isLastBatch = true;
       }
 
       for (let i = 0; i < txs.length; ++i) {
@@ -258,7 +261,8 @@ export class ZeropoolClient {
       }
 
       ++curBatch;
-    };
+
+    } while(!isLastBatch);
   }
 
   // TODO: Make updateState implementation configurable through DI.
