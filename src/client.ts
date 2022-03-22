@@ -354,8 +354,17 @@ export class ZeropoolClient {
       console.info(`📝 Adding account, notes, and hashes to state (at index ${index})`);
       state.account.addAccount(BigInt(index), hashes, pair.account, notes);
     } else if (onlyNotes.length > 0) {
+      // Get only our notes and update the indexes to the absolute values
+      const notes = onlyNotes.reduce<{ note: Note, index: number }[]>((acc, idxNote) => {
+        const address = assembleAddress(idxNote.note.d, idxNote.note.p_d);
+        if (state.account.isOwnAddress(address)) {
+          acc.push({ note: idxNote.note, index: index + 1 + idxNote.index });
+        }
+        return acc;
+      }, []);
+
       console.info(`📝 Adding notes and hashes to state (at index ${index})`);
-      state.account.addNotes(BigInt(index), hashes, onlyNotes);
+      state.account.addNotes(BigInt(index), hashes, notes);
     } else {
       console.info(`📝 Adding hashes to state (at index ${index})`);
       state.account.addHashes(BigInt(index), hashes);
