@@ -21,6 +21,7 @@ async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: numb
   return res;
 }
 
+// returns transaction job ID
 async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, txType: TxType, depositSignature?: string): Promise<string> {
   const url = new URL('/transaction', relayerUrl);
   const res = await fetch(url.toString(), { method: 'POST', body: JSON.stringify({ proof, memo, txType, depositSignature }) });
@@ -31,32 +32,7 @@ async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, t
   }
 
   const json = await res.json();
-
-  const INTERVAL_MS = 1000;
-  let hash;
-  while (true) {
-    const job = await getJob(relayerUrl, json.jobId);
-
-    if (job === null) {
-      console.error(`Job ${json.jobId} not found.`);
-      throw new Error('Job not found');
-    } else if (job.state === 'failed') {
-      throw new Error('Transaction failed');
-    } else if (job.state = 'completed') {
-      hash = job.txHash;
-      break;
-    }
-
-    await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
-  }
-
-  // if (!hash) {
-  //     throw new Error('Transaction failed');
-  // }
-
-  console.info(`Transaction successful: ${hash}`);
-
-  return hash;
+  return json.jobId;
 }
 
 async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string } | null> {
@@ -125,7 +101,7 @@ export class ZeropoolClient {
   }
 
   // TODO: generalize wei/gwei
-  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<void> {
+  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -154,10 +130,10 @@ export class ZeropoolClient {
       fullSignature = toCompactSignature(fullSignature);
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
   }
 
-  public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<void> {
+  public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -182,10 +158,10 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
-  public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<void> {
+  public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
@@ -195,14 +171,41 @@ export class ZeropoolClient {
     const addressBin = hexToBuf(address);
 
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: amountWei, energy_amount: '0' });
+    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
 
-    await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+  }
+
+  // return transaction hash on success or throw an error
+  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string> {
+    const token = this.tokens[tokenAddress];
+
+    const INTERVAL_MS = 1000;
+    let hash;
+    while (true) {
+      const job = await getJob(token.relayerUrl, jobId);
+
+      if (job === null) {
+        console.error(`Job ${jobId} not found.`);
+        throw new Error('Job ${jobId} not found');
+      } else if (job.state === 'failed') {
+        throw new Error('Transaction [job ${jobId}] failed');
+      } else if (job.state === 'completed') {
+        hash = job.txHash;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    console.info(`Transaction [job ${jobId}] successful: ${hash}`);
+
+    return hash;
   }
 
   // TODO: Transaction list
@@ -223,6 +226,10 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getBalances();
   }
 
+  public async rawState(tokenAddress: string): Promise<any> {
+    return await this.zpStates[tokenAddress].rawState();
+  }
+
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
@@ -234,31 +241,39 @@ export class ZeropoolClient {
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
-    console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+    if (nextIndex > startIndex) {
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
-    let curBatch = 0;
-    while (true) {
-      const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
-        .filter((val) => !!val);
+      let curBatch = 0;
+      let isLastBatch = false;
+      do {
+        const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
+          .filter((val) => !!val);
 
-      if (txs.length === 0) {
-        break;
-      }
+        // TODO: Error handling 
 
-      for (let i = 0; i < txs.length; ++i) {
-        const tx = txs[i];
-
-        if (!tx) {
-          continue;
+        if (txs.length < BATCH_SIZE) {
+          isLastBatch = true;
         }
 
-        const memo = tx.slice(64); // Skip commitment
-        const hashes = parseHashes(memo);
-        this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
-      }
+        for (let i = 0; i < txs.length; ++i) {
+          const tx = txs[i];
 
-      ++curBatch;
-    };
+          if (!tx) {
+            continue;
+          }
+
+          const memo = tx.slice(64); // Skip commitment
+          const hashes = parseHashes(memo);
+          this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+        }
+
+        ++curBatch;
+
+      } while(!isLastBatch);
+    } else {
+      console.log(`Local state is up to date @${startIndex}...`);
+    }
   }
 
   // TODO: Make updateState implementation configurable through DI.
@@ -339,8 +354,17 @@ export class ZeropoolClient {
       console.info(`📝 Adding account, notes, and hashes to state (at index ${index})`);
       state.account.addAccount(BigInt(index), hashes, pair.account, notes);
     } else if (onlyNotes.length > 0) {
+      // Get only our notes and update the indexes to the absolute values
+      const notes = onlyNotes.reduce<{ note: Note, index: number }[]>((acc, idxNote) => {
+        const address = assembleAddress(idxNote.note.d, idxNote.note.p_d);
+        if (state.account.isOwnAddress(address)) {
+          acc.push({ note: idxNote.note, index: index + 1 + idxNote.index });
+        }
+        return acc;
+      }, []);
+
       console.info(`📝 Adding notes and hashes to state (at index ${index})`);
-      state.account.addNotes(BigInt(index), hashes, onlyNotes);
+      state.account.addNotes(BigInt(index), hashes, notes);
     } else {
       console.info(`📝 Adding hashes to state (at index ${index})`);
       state.account.addHashes(BigInt(index), hashes);

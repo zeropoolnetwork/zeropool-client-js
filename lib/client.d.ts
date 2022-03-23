@@ -26,14 +26,16 @@ export declare class ZeropoolClient {
     private config;
     static create(config: ClientConfig): Promise<ZeropoolClient>;
     generateAddress(tokenAddress: string): string;
-    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<void>;
-    transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<void>;
-    withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<void>;
+    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<string>;
+    transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<string>;
+    withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<string>;
+    waitJobCompleted(tokenAddress: string, jobId: string): Promise<string>;
     getTotalBalance(tokenAddress: string): Promise<string>;
     /**
      * @returns [total, account, note]
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
+    rawState(tokenAddress: string): Promise<any>;
     updateState(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.

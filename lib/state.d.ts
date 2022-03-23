@@ -5,5 +5,6 @@ export declare class ZeroPoolState {
     static create(sk: Uint8Array, networkName: string, denominator: bigint): Promise<ZeroPoolState>;
     getTotalBalance(): string;
     getBalances(): [string, string, string];
+    rawState(): any;
     free(): void;
 }
