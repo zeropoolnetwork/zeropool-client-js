@@ -2,7 +2,8 @@
 
 ## Example
 ```js
-import { init, ZeropoolClient } from 'zeropool-js';
+import { init, ZeropoolClient } from 'zeropool-client-js';
+import { EvmNetwork } from 'zeropool-client-js/lib/networks/evm';
 
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
@@ -25,13 +26,15 @@ init('/path/to/wasm', '/path/to/worker.js', snarkParams)
         }
       };
 
-      const client = await EvmZeropoolClient.create({
+      const evmRpcUrl = '...';
+      const network = new EvmNetwork(evmRpcUrl);
+      const client = await ZeropoolClient.create({
         sk,
         tokens,
         snarkParams: ctx.snarkParams,
         worker: ctx.worker,
         networkName: 'ethereum',
-        compactSignature: true, // true for ethereum
+        network,
       });
 
       const signFunction = (data) => sign(data);
