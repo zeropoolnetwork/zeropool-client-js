@@ -102,10 +102,14 @@ export class ZeropoolClient {
 
   // TODO: generalize wei/gwei
   public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<string> {
-    await this.updateState(tokenAddress);
-
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
+
+    if (BigInt(amountWei) < state.denominator) {
+      throw new Error('Value is too small');
+    }
+
+    await this.updateState(tokenAddress);
 
     const txType = TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
@@ -145,9 +149,14 @@ export class ZeropoolClient {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
+      const bnAmount = BigInt(amount);
+      if (bnAmount < state.denominator) {
+        throw new Error('One of the values is too small');
+      }
+
       return {
         to,
-        amount: (BigInt(amount) / state.denominator).toString(),
+        amount: (bnAmount / state.denominator).toString(),
       }
     });
 
@@ -162,10 +171,14 @@ export class ZeropoolClient {
   }
 
   public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
-    await this.updateState(tokenAddress);
-
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
+
+    if (BigInt(amountWei) < state.denominator) {
+      throw new Error('Value is too small');
+    }
+
+    await this.updateState(tokenAddress);
 
     const txType = TxType.Withdraw;
     const addressBin = hexToBuf(address);
