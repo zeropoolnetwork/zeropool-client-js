@@ -21,7 +21,7 @@ export async function init(wasmPath: string, workerPath: string, snarkParams: Sn
     treeParams: snarkParams.treeParamsUrl,
   });
 
-  initWasm(wasmPath);
+  await initWasm(wasmPath);
 
   const txParamsData = await fileCache.getOrCache(snarkParams.transferParamsUrl);
   const transferParams = Params.fromBinary(new Uint8Array(txParamsData));
