@@ -106,6 +106,4 @@ dist
 *.wasm
 
 .parcel-cache
-yarn.lock
 *.DS_Store
-/package-lock.json
