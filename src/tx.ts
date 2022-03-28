@@ -20,6 +20,7 @@ export enum TxType {
   Deposit = '0000',
   Transfer = '0001',
   Withdraw = '0002',
+  BridgeDeposit = '0003',
 }
 
 export function txTypeToString(txType: TxType): string {
@@ -27,6 +28,7 @@ export function txTypeToString(txType: TxType): string {
     case TxType.Deposit: return 'deposit';
     case TxType.Transfer: return 'transfer';
     case TxType.Withdraw: return 'withdraw';
+    case TxType.BridgeDeposit: return 'bridge-deposit';
   }
 }
 

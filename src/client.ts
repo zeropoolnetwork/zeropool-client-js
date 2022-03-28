@@ -101,7 +101,14 @@ export class ZeropoolClient {
   }
 
   // TODO: generalize wei/gwei
-  public async deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null = null, fee: string = '0'): Promise<string> {
+  public async deposit(
+    tokenAddress: string,
+    amountWei: string,
+    sign: (data: string) => Promise<string>,
+    fromAddress: string | null = null,
+    fee: string = '0',
+    isBridge: boolean = false
+  ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -111,7 +118,7 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
-    const txType = TxType.Deposit;
+    const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
     const txData = await state.account.createDeposit({ amount: amountGwei, fee });
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -283,7 +290,7 @@ export class ZeropoolClient {
 
         ++curBatch;
 
-      } while(!isLastBatch);
+      } while (!isLastBatch);
     } else {
       console.log(`Local state is up to date @${startIndex}...`);
     }
