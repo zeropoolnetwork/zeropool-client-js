@@ -2,16 +2,19 @@ import { hash } from 'tweetnacl';
 
 import { UserAccount, UserState } from 'libzeropool-rs-wasm-web';
 import { bufToHex } from './utils';
+import { HistoryStorage } from './history'
 
 export class ZeroPoolState {
   public denominator: bigint;
   public account: UserAccount;
+  public history: HistoryStorage;
 
   public static async create(sk: Uint8Array, networkName: string, denominator: bigint): Promise<ZeroPoolState> {
     const zpState = new ZeroPoolState();
     zpState.denominator = denominator;
     const userId = bufToHex(hash(sk));
     const state = await UserState.init(`zp.${networkName}.${userId}`);
+    zpState.history = await HistoryStorage.init(`zp.${networkName}.${userId}`);
 
     try {
       const acc = new UserAccount(sk, state);
