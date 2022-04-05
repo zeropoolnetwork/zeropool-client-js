@@ -121,7 +121,12 @@ export class ZeropoolClient {
     const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
     const txData = await state.account.createDeposit({ amount: amountGwei, fee });
+
+    const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
     const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
@@ -168,7 +173,12 @@ export class ZeropoolClient {
     });
 
     const txData = await state.account.createTransfer({ outputs: outGwei, fee });
+
+    const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
     const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
@@ -192,7 +202,12 @@ export class ZeropoolClient {
 
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
     const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
+
+    const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+    
     const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
@@ -286,7 +301,10 @@ export class ZeropoolClient {
           }
 
           const memo = tx.slice(64); // Skip commitment
+
           const hashes = parseHashes(memo);
+          //const hashes: string[] = [];
+
           this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
         }
 
@@ -296,8 +314,9 @@ export class ZeropoolClient {
 
       const msElapsed = Date.now() - startTime;
       const txCount = (nextIndex - startIndex) / 128;
+      const avgSpeed = msElapsed / txCount
 
-      console.log(`${txCount} transaction(s) have been synced in ${msElapsed / 1000} sec. Sync speed: $(msElapsed / txCount) ms/tx`);
+      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
 
     } else {
@@ -395,8 +414,8 @@ export class ZeropoolClient {
       console.info(`📝 Adding notes and hashes to state (at index ${index})`);
       state.account.addNotes(BigInt(index), hashes, notes);
     } else {
-      console.info(`📝 Adding hashes to state (at index ${index})`);
-      state.account.addHashes(BigInt(index), hashes);
+      //console.info(`📝 Adding hashes to state (at index ${index})`);
+      //state.account.addHashes(BigInt(index), hashes);
     }
 
     //console.debug('New balance:', state.account.totalBalance());
