@@ -262,6 +262,8 @@ export class ZeropoolClient {
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
 
     if (nextIndex > startIndex) {
+      const startTime = Date.now();
+      
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
       let curBatch = 0;
@@ -291,6 +293,13 @@ export class ZeropoolClient {
         ++curBatch;
 
       } while (!isLastBatch);
+
+      const msElapsed = Date.now() - startTime;
+      const txCount = (nextIndex - startIndex) / 128;
+
+      console.log(`${txCount} transaction(s) have been synced in ${msElapsed / 1000} sec. Sync speed: $(msElapsed / txCount) ms/tx`);
+
+
     } else {
       console.log(`Local state is up to date @${startIndex}...`);
     }
@@ -390,7 +399,7 @@ export class ZeropoolClient {
       state.account.addHashes(BigInt(index), hashes);
     }
 
-    console.debug('New balance:', state.account.totalBalance());
+    //console.debug('New balance:', state.account.totalBalance());
 
     return true;
   }
