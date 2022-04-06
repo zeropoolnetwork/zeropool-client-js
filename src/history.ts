@@ -1,20 +1,24 @@
 import { openDB, IDBPDatabase } from 'idb';
 
 export enum HistoryTransactionType {
-	Deposit = 1,
-	Transfer,
+	DepositAllow = 1,
+  DepositPermit,
+	TransferIn,
+  TransferOut,
 	Withdrawal,
-	BridgeDeposit,
 }
 
-export interface HistoryRecord {
-	type: HistoryTransactionType,
-	timestamp: bigint,
-	from: string,
-	to: string,
-	amount: bigint,
-	txHash: string,
+export class HistoryRecord {
+  constructor(
+    public type: HistoryTransactionType,
+    public timestamp: number,
+    public from: string,
+    public to: string,
+    public amount: bigint,
+    public txHash: string,
+  ) {}
 }
+
 
 const TX_TABLE = 'TX_STORE';
 
@@ -40,13 +44,13 @@ export class HistoryStorage {
       return null;
   }*/
 
-  public async put(index: bigint, data: HistoryRecord): Promise<HistoryRecord> {
-    await this.db.put(TX_TABLE, data, index.toString());
+  public async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
+    await this.db.put(TX_TABLE, data, index);
     return data;
   }
 
-  public async get(index: bigint): Promise<HistoryRecord | null> {
-    let data = await this.db.get(TX_TABLE, index.toString());
+  public async get(index: number): Promise<HistoryRecord | null> {
+    let data = await this.db.get(TX_TABLE, index);
     return data;
   }
 }

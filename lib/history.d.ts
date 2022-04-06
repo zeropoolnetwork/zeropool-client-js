@@ -1,22 +1,24 @@
 import { IDBPDatabase } from 'idb';
 export declare enum HistoryTransactionType {
-    Deposit = 1,
-    Transfer = 2,
-    Withdrawal = 3,
-    BridgeDeposit = 4
+    DepositAllow = 1,
+    DepositPermit = 2,
+    TransferIn = 3,
+    TransferOut = 4,
+    Withdrawal = 5
 }
-export interface HistoryRecord {
+export declare class HistoryRecord {
     type: HistoryTransactionType;
-    timestamp: bigint;
+    timestamp: number;
     from: string;
     to: string;
     amount: bigint;
     txHash: string;
+    constructor(type: HistoryTransactionType, timestamp: number, from: string, to: string, amount: bigint, txHash: string);
 }
 export declare class HistoryStorage {
     private db;
     constructor(db: IDBPDatabase);
     static init(db_id: string): Promise<HistoryStorage>;
-    put(index: bigint, data: HistoryRecord): Promise<HistoryRecord>;
-    get(index: bigint): Promise<HistoryRecord | null>;
+    put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
+    get(index: number): Promise<HistoryRecord | null>;
 }

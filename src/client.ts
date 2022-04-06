@@ -1,4 +1,4 @@
-import { assembleAddress, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
+import { assembleAddress, Account, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -6,6 +6,7 @@ import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
+import { HistoryTransactionType, HistoryRecord, HistoryStorage } from './history'
 
 export interface RelayerInfo {
   root: string;
@@ -65,6 +66,13 @@ export interface ClientConfig {
   /** The name of the network is only used for storage. */
   networkName: string | undefined;
   network: NetworkBackend;
+}
+
+interface DecryptedMemo {
+  index: number;
+  acc: Account | undefined;
+  in_notes:  { note: Note, index: number }[] | undefined;
+  out_notes: { note: Note, index: number }[] | undefined;
 }
 
 export class ZeropoolClient {
@@ -305,7 +313,11 @@ export class ZeropoolClient {
           const hashes = parseHashes(memo);
           //const hashes: string[] = [];
 
-          this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+          let result = this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+
+          // try history storage
+          //let record = new HistoryRecord(HistoryTransactionType.Deposit, 0, "from me", "to you", BigInt(1000), "0xa95524d81e91f6eb92a72de3cbe85c07489587c163ab92ca205d453c53b23f76");
+          //state.history.put(index, record);
         }
 
         ++curBatch;
@@ -324,74 +336,21 @@ export class ZeropoolClient {
     }
   }
 
-  // TODO: Make updateState implementation configurable through DI.
-
-  // public async updateStateFromNode(tokenAddress: string) {
-  //   const STORAGE_PREFIX = `${STATE_STORAGE_PREFIX}.latestCheckedBlock`;
-
-  //   // TODO: Fetch txs from relayer
-  //   // await this.fetchTransactionsFromRelayer(tokenAddress);
-
-  //   const token = this.tokens[tokenAddress];
-  //   const state = this.zpStates[tokenAddress];
-  //   const curBlockNumber = await this.web3.eth.getBlockNumber();
-  //   const latestCheckedBlock = Number(localStorage.getItem(STORAGE_PREFIX)) || 0;
-
-  //   // moslty useful for local testing, since getPastLogs always returns at least one latest event
-  //   if (curBlockNumber === latestCheckedBlock) {
-  //     return;
-  //   }
-
-  //   console.info(`Processing contract events since block ${latestCheckedBlock} to ${curBlockNumber}`);
-
-  //   const logs = await this.web3.eth.getPastLogs({
-  //     fromBlock: latestCheckedBlock,
-  //     toBlock: curBlockNumber,
-  //     address: token.poolAddress,
-  //     topics: [
-  //       keccak256(MESSAGE_EVENT_SIGNATURE)
-  //     ]
-  //   });
-
-  //   const STEP: number = (CONSTANTS.OUT + 1);
-  //   let index = Number(state.account.nextTreeIndex());
-  //   for (const log of logs) {
-  //     // TODO: Batch getTransaction
-  //     const tx = await this.web3.eth.getTransaction(log.transactionHash);
-  //     const message = tx.input;
-  //     const txData = EvmShieldedTx.decode(message);
-
-  //     let hashes;
-  //     try {
-  //       hashes = txData.hashes;
-  //     } catch (err) {
-  //       console.info(`❌ Skipping invalid transaction: invalid number of outputs ${err.numOutputs}`);
-  //       continue;
-  //     }
-
-  //     let res = this.cacheShieldedTx(tokenAddress, txData.ciphertext, hashes, index);
-  //     if (res) {
-  //       index += STEP;
-  //     }
-  //   }
-
-  //   localStorage.setItem(STORAGE_PREFIX, curBlockNumber.toString());
-  // }
-
   /**
    * Attempt to extract and save usable account/notes from transaction data.
+   * Return decrypted account and notes to proceed history restoring
    * @param raw hex-encoded transaction data
    */
-  private cacheShieldedTx(tokenAddress: string, ciphertext: string, hashes: string[], index: number): boolean {
+  private cacheShieldedTx(tokenAddress: string, ciphertext: string, hashes: string[], index: number): DecryptedMemo | undefined {
     const state = this.zpStates[tokenAddress];
 
     const data = hexToBuf(ciphertext);
-    const pair = state.account.decryptPair(data);
-    const onlyNotes = state.account.decryptNotes(data);
 
-    // Can't rely on txData.transferIndex here since it can be anything as long as index <= pool index
+    // First try do decrypt account and outcoming notes
+    const pair = state.account.decryptPair(data);
     if (pair) {
-      const notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
+      // It's definitely our transaction since accound was decrypted
+      const in_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
         const address = assembleAddress(note.d, note.p_d);
         if (state.account.isOwnAddress(address)) {
           acc.push({ note, index: index + 1 + noteIndex });
@@ -399,28 +358,52 @@ export class ZeropoolClient {
         return acc;
       }, []);
 
-      console.info(`📝 Adding account, notes, and hashes to state (at index ${index})`);
-      state.account.addAccount(BigInt(index), hashes, pair.account, notes);
-    } else if (onlyNotes.length > 0) {
-      // Get only our notes and update the indexes to the absolute values
-      const notes = onlyNotes.reduce<{ note: Note, index: number }[]>((acc, idxNote) => {
-        const address = assembleAddress(idxNote.note.d, idxNote.note.p_d);
-        if (state.account.isOwnAddress(address)) {
-          acc.push({ note: idxNote.note, index: index + 1 + idxNote.index });
+      const out_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
+        const address = assembleAddress(note.d, note.p_d);
+        if (state.account.isOwnAddress(address) == false) {
+          acc.push({ note, index: index + 1 + noteIndex });
         }
         return acc;
       }, []);
 
-      console.info(`📝 Adding notes and hashes to state (at index ${index})`);
-      state.account.addNotes(BigInt(index), hashes, notes);
+      console.info(`📝 Adding account, notes, and hashes to state (at index ${index})`);
+      state.account.addAccount(BigInt(index), hashes, pair.account, in_notes);
+
+
+      return {index: index, acc: pair.account, in_notes: in_notes, out_notes: out_notes };
+
     } else {
-      //console.info(`📝 Adding hashes to state (at index ${index})`);
-      //state.account.addHashes(BigInt(index), hashes);
+      // Second try do decrypt incoming notes
+      const onlyNotes = state.account.decryptNotes(data);
+      if (onlyNotes.length > 0) {
+        // There is definitely incoming notes (but transaction isn't our)
+
+        // Get only our notes and update the indexes to the absolute values
+        const notes = onlyNotes.reduce<{ note: Note, index: number }[]>((acc, idxNote) => {
+          const address = assembleAddress(idxNote.note.d, idxNote.note.p_d);
+          if (state.account.isOwnAddress(address)) {
+            acc.push({ note: idxNote.note, index: index + 1 + idxNote.index });
+          }
+          return acc;
+        }, []);
+
+        console.info(`📝 Adding notes and hashes to state (at index ${index})`);
+        state.account.addNotes(BigInt(index), hashes, notes);
+
+        return {index: index, acc: undefined, in_notes: notes, out_notes: undefined};
+
+      } else {
+        // This transaction isn't belongs to our account
+        
+        // Do not store hashes [TODO: need to check]
+        //console.info(`📝 Adding hashes to state (at index ${index})`);
+        //state.account.addHashes(BigInt(index), hashes);
+      }
     }
 
     //console.debug('New balance:', state.account.totalBalance());
 
-    return true;
+    return undefined;
   }
 
   public free(): void {

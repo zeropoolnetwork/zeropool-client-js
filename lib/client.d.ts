@@ -39,6 +39,7 @@ export declare class ZeropoolClient {
     updateState(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
+     * Return decrypted account and notes to proceed history restoring
      * @param raw hex-encoded transaction data
      */
     private cacheShieldedTx;
