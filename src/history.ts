@@ -105,13 +105,13 @@ export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcU
                         let rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
                         allRecords.push(HistoryRecordIdx.create(rec, index));
                       }
-                    } else {
-                      // 2. somebody initiated it => incoming tx(s)
-                      for (let {note, index} of memo.inNotes) {
-                        const destAddr = assembleAddress(note.d, note.p_d);
-                        let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, destAddr, "", BigInt(note.b), BigInt(0), txHash);
-                        allRecords.push(HistoryRecordIdx.create(rec, index));
-                      }
+                    }
+
+                    // 2. somebody (including this acc) initiated it => incoming tx(s)
+                    for (let {note, index} of memo.inNotes) {
+                      const destAddr = assembleAddress(note.d, note.p_d);
+                      let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, destAddr, "", BigInt(note.b), BigInt(0), txHash);
+                      allRecords.push(HistoryRecordIdx.create(rec, index));
                     }
                   } else if (tx.txType == TxType.Withdraw) {
                     // withdrawal transaction (destination address in the memoblock)
