@@ -192,12 +192,11 @@ export class ShieldedTx {
     tx.memo = reader.readHex(memoSize)!;
     assertNotNull(tx.memo);
 
-    if (reader.curIndex < data.length) {
-      // Extra data
-      // It contains deposit holder signature for deposit transactions
-      // or any other data which user can append
-      tx.extra = reader.readHex((data.length - reader.curIndex) / 2)!;
-    }
+    // Extra data
+    // It contains deposit holder signature for deposit transactions
+    // or any other data which user can append
+    tx.extra = reader.readHexToTheEnd()!;
+    assertNotNull(tx.extra);
 
     return tx;
   }

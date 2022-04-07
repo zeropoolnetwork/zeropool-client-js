@@ -311,7 +311,9 @@ export class ZeropoolClient {
 
           if (result) {
             //let txHash = `0x${tx.substring(0, 64)}`;
-            let txHash = `0xa95524d81e91f6eb92a72de3cbe85c07489587c163ab92ca205d453c53b23f76`;
+            //let txHash = `0xe84e55077657c6150dbef8b73e848119a6101dc7e9442f78b05aed0e7f4850f7`;  // deposit (approve)
+            //let txHash = `0x97b722fddad31832b1d8d97c5b1b4de40bdbc5b970595cd18218ffba638d977f`;  // transfer
+            let txHash = `0xee7c58a8f6e3449093880a9c350287f7aca148ed3f4942308d2c3bc1c6c65449`;  // withdrawal
             convertToHistory(result, txHash, rpc).then( records => {
               for (let oneRec of records) {
                 console.log(`History record @${oneRec.index}: ${oneRec.record.toJson()}`);

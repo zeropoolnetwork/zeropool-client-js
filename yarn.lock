@@ -4388,7 +4388,7 @@ web3-eth-iban@1.7.1:
     bn.js "^4.11.9"
     web3-utils "1.7.1"
 
-web3-eth-personal@1.7.1:
+web3-eth-personal@1.7.1, web3-eth-personal@^1.7.0:
   version "1.7.1"
   resolved "https://registry.yarnpkg.com/web3-eth-personal/-/web3-eth-personal-1.7.1.tgz#38635f94223f951422105e5fcb7f7ba767a3ee9f"
   integrity sha512-02H6nFBNfNmFjMGZL6xcDi0r7tUhxrUP91FTFdoLyR94eIJDadPp4rpXfG7MVES873i1PReh4ep5pSCHbc3+Pg==

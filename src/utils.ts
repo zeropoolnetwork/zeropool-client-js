@@ -162,6 +162,16 @@ export class HexStringReader {
 
     return elements;
   }
+
+  readHexToTheEnd(): string | null {
+    if (this.curIndex > this.data.length) {
+      return null;
+    }
+
+    const res = this.data.slice(this.curIndex, this.data.length);
+    this.curIndex = this.data.length;
+    return res;
+  }
 }
 
 export function toTwosComplementHex(num: bigint, numBytes: number): string {
@@ -189,12 +199,35 @@ export function toCompactSignature(signature: string): string {
   return signature;
 }
 
-export function toCanonicalSignature(signature: string): string {
+export function parseCompactSignature(signature: string): {v: string, r: string, s: string} {
   signature = truncateHexPrefix(signature);
 
-  let v = "1c";
-  if (parseInt(signature[64], 16) > 7) {
-    v = "1e";
+  if (signature.length == 128) {
+    const r = `0x${signature.substr(0, 64)}`;
+    let s = `0x${signature.slice(64)}`;
+    
+    let v = `0x1b`;
+    let sHiDigit = parseInt(s[0], 16);
+    if (sHiDigit > 7) {
+      v = `0x1c`;
+      s = `0x${(sHiDigit & 7).toString(16)}${s.slice(1)}`;
+    }
+
+    return {v, r, s};
+
+  }else {
+    throw ("invalid signature length");
   }
-  return signature + v;
+
+}
+
+export function toCanonicalSignature(signature: string): string {
+  let sig = truncateHexPrefix(signature);
+
+  let v = "1b";
+  if (parseInt(sig[64], 16) > 7) {
+    v = "1c";
+    sig = sig.substr(0, 64) + `${(parseInt(sig[64], 16) & 7).toString(16)}` + sig.slice(65);
+  }
+  return `0x` + sig + v;
 }
