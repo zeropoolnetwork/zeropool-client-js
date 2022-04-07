@@ -6,8 +6,11 @@ import { NetworkBackend } from './network';
 
 export class EvmNetwork implements NetworkBackend {
     contract: Contract;
+    rpcUrl: string;
 
     constructor(rpcUrl: string) {
+        this.rpcUrl = rpcUrl;
+
         const web3 = new Web3(rpcUrl);
 
         const abi: AbiItem[] = [
@@ -40,5 +43,9 @@ export class EvmNetwork implements NetworkBackend {
 
     defaultNetworkName(): string {
         return 'ethereum';
+    }
+
+    getRpcUrl(): string {
+        return this.rpcUrl;
     }
 }

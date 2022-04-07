@@ -12,4 +12,8 @@ export class PolkadotNetwork implements NetworkBackend {
     defaultNetworkName(): string {
         return 'polkadot';
     }
+
+    getRpcUrl(): string {
+        return '';
+    }
 }

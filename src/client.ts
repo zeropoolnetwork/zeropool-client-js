@@ -6,7 +6,7 @@ import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryTransactionType, HistoryRecord, HistoryStorage } from './history'
+import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage, DecryptedMemo, convertToHistory } from './history'
 
 export interface RelayerInfo {
   root: string;
@@ -66,14 +66,6 @@ export interface ClientConfig {
   /** The name of the network is only used for storage. */
   networkName: string | undefined;
   network: NetworkBackend;
-}
-
-interface DecryptedMemo {
-  index: number;
-  acc: Account | undefined;
-  inNotes:  { note: Note, index: number }[];
-  outNotes: { note: Note, index: number }[];
-  txHash: string | undefined;
 }
 
 export class ZeropoolClient {
@@ -274,15 +266,6 @@ export class ZeropoolClient {
     return await this.zpStates[tokenAddress].rawState();
   }
 
-  async updateHistory(stateMemos: DecryptedMemo[]): Promise<void> {
-    if (stateMemos.length > 0) {
-      console.log(`Restoring ${stateMemos.length} history records...`);
-      await new Promise(r => setTimeout(r, 3000));
-      console.log(`History is ready!`);
-    }
-
-  }
-
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
@@ -301,7 +284,6 @@ export class ZeropoolClient {
 
       let curBatch = 0;
       let isLastBatch = false;
-      let decryptedMemos: DecryptedMemo[] = [];
       do {
         const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
           .filter((val) => !!val);
@@ -311,6 +293,8 @@ export class ZeropoolClient {
         if (txs.length < BATCH_SIZE) {
           isLastBatch = true;
         }
+
+        let rpc = this.config.network.getRpcUrl();
 
         for (let i = 0; i < txs.length; ++i) {
           const tx = txs[i];
@@ -326,8 +310,16 @@ export class ZeropoolClient {
           let result = this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
 
           if (result) {
-            result.txHash = `0x${tx.substring(0, 64)}`;
-            decryptedMemos.push(result);
+            //let txHash = `0x${tx.substring(0, 64)}`;
+            let txHash = `0xa95524d81e91f6eb92a72de3cbe85c07489587c163ab92ca205d453c53b23f76`;
+            convertToHistory(result, txHash, rpc).then( records => {
+              for (let oneRec of records) {
+                console.log(`History record @${oneRec.index}: ${oneRec.record.toJson()}`);
+                zpState.history.put(oneRec.index, oneRec.record);
+              };
+            }, reason => {
+              console.error(reason);
+            });
           }
 
           // try history storage
@@ -343,11 +335,11 @@ export class ZeropoolClient {
       const txCount = (nextIndex - startIndex) / 128;
       const avgSpeed = msElapsed / txCount
 
-      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx (${decryptedMemos.length} ours), avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
       // Pass the obtained data to the history resolver
       // Do not wait for finishing (it's not important for making transactions)
-      this.updateHistory(decryptedMemos);
+      //this.updateHistory(decryptedMemos);
 
     } else {
       console.log(`Local state is up to date @${startIndex}...`);
@@ -388,7 +380,7 @@ export class ZeropoolClient {
       state.account.addAccount(BigInt(index), hashes, pair.account, in_notes);
 
 
-      return {index: index, acc: pair.account, inNotes: in_notes, outNotes: out_notes, txHash: undefined };
+      return { index: index, acc: pair.account, inNotes: in_notes, outNotes: out_notes };
 
     } else {
       // Second try do decrypt incoming notes
@@ -408,7 +400,7 @@ export class ZeropoolClient {
         console.info(`📝 Adding notes and hashes to state (at index ${index})`);
         state.account.addNotes(BigInt(index), hashes, notes);
 
-        return {index: index, acc: undefined, inNotes: notes, outNotes: [], txHash: undefined};
+        return { index: index, acc: undefined, inNotes: notes, outNotes: [] };
 
       } else {
         // This transaction isn't belongs to our account

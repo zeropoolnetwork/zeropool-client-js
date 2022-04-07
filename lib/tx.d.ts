@@ -24,6 +24,7 @@ export declare class ShieldedTx {
     treeProof: bigint[];
     txType: TxType;
     memo: string;
+    extra: string;
     static fromData(txData: TransactionData, txType: TxType, acc: UserAccount, snarkParams: {
         transferParams: Params;
         treeParams: Params;

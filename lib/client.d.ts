@@ -1,4 +1,4 @@
-import { Account, Note, Output } from 'libzeropool-rs-wasm-web';
+import { Output } from 'libzeropool-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
 import { NetworkBackend } from './networks/network';
 export interface RelayerInfo {
@@ -18,19 +18,6 @@ export interface ClientConfig {
     networkName: string | undefined;
     network: NetworkBackend;
 }
-interface DecryptedMemo {
-    index: number;
-    acc: Account | undefined;
-    inNotes: {
-        note: Note;
-        index: number;
-    }[];
-    outNotes: {
-        note: Note;
-        index: number;
-    }[];
-    txHash: string | undefined;
-}
 export declare class ZeropoolClient {
     private zpStates;
     private worker;
@@ -49,7 +36,6 @@ export declare class ZeropoolClient {
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
     rawState(tokenAddress: string): Promise<any>;
-    updateHistory(stateMemos: DecryptedMemo[]): Promise<void>;
     updateState(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
@@ -59,4 +45,3 @@ export declare class ZeropoolClient {
     private cacheShieldedTx;
     free(): void;
 }
-export {};
