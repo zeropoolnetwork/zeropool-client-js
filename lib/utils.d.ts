@@ -21,8 +21,15 @@ export declare class HexStringReader {
     readHex(numBytes: number): string | null;
     readNumber(numBytes: number, le?: boolean): number | null;
     readBigInt(numBytes: number, le?: boolean): bigint | null;
+    readSignedBigInt(numBytes: number, le?: boolean): bigint | null;
     readBigIntArray(numElements: number, numBytesPerElement: number, le?: boolean): bigint[];
+    readHexToTheEnd(): string | null;
 }
 export declare function toTwosComplementHex(num: bigint, numBytes: number): string;
 export declare function toCompactSignature(signature: string): string;
+export declare function parseCompactSignature(signature: string): {
+    v: string;
+    r: string;
+    s: string;
+};
 export declare function toCanonicalSignature(signature: string): string;
