@@ -21,6 +21,7 @@ export declare class HexStringReader {
     readHex(numBytes: number): string | null;
     readNumber(numBytes: number, le?: boolean): number | null;
     readBigInt(numBytes: number, le?: boolean): bigint | null;
+    readSignedBigInt(numBytes: number, le?: boolean): bigint | null;
     readBigIntArray(numElements: number, numBytesPerElement: number, le?: boolean): bigint[];
     readHexToTheEnd(): string | null;
 }

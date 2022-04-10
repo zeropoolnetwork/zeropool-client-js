@@ -148,6 +148,17 @@ export class HexStringReader {
     return BigInt('0x' + hex);
   }
 
+  readSignedBigInt(numBytes: number, le: boolean = false): bigint | null {
+    let unsignedNum = this.readBigInt(numBytes, le);
+    const msbMask = (BigInt(1) << BigInt(numBytes * 8 - 1));
+    if (unsignedNum && (unsignedNum & msbMask)) {
+
+      unsignedNum -= BigInt(1) << BigInt(numBytes * 8);
+    }
+
+    return unsignedNum;
+  }
+
 
   readBigIntArray(numElements: number, numBytesPerElement: number, le: boolean = false): bigint[] {
     const elements: bigint[] = [];

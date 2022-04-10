@@ -265,6 +265,11 @@ export class ZeropoolClient {
   public async rawState(tokenAddress: string): Promise<any> {
     return await this.zpStates[tokenAddress].rawState();
   }
+  
+  public async getAllHistory(tokenAddress: string): Promise<HistoryRecord[]> {
+    await this.updateState(tokenAddress);
+    return await this.zpStates[tokenAddress].history.getAllHistory();
+  }
 
   // TODO: Verify the information sent by the relayer!
   public async updateState(tokenAddress: string): Promise<void> {
@@ -284,6 +289,7 @@ export class ZeropoolClient {
 
       let curBatch = 0;
       let isLastBatch = false;
+      let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
       do {
         const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
           .filter((val) => !!val);
@@ -299,29 +305,32 @@ export class ZeropoolClient {
         for (let i = 0; i < txs.length; ++i) {
           const tx = txs[i];
 
-          if (!tx) {
+          if (!tx || tx.length < 128) {
             continue;
           }
 
-          const memo = tx.slice(64); // Skip commitment
 
+          // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
+          const memo = tx.slice(128); // Skip commitment
+
+          const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
+
+          // workaround relayer bug: it returns mem
           const hashes = parseHashes(memo);
-
-          let result = this.cacheShieldedTx(tokenAddress, memo, hashes, startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE);
+          let result = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
 
           if (result) {
-            //let txHash = `0x${tx.substring(0, 64)}`;
-            //let txHash = `0xe84e55077657c6150dbef8b73e848119a6101dc7e9442f78b05aed0e7f4850f7`;  // deposit (approve)
-            //let txHash = `0x97b722fddad31832b1d8d97c5b1b4de40bdbc5b970595cd18218ffba638d977f`;  // transfer
-            let txHash = `0xee7c58a8f6e3449093880a9c350287f7aca148ed3f4942308d2c3bc1c6c65449`;  // withdrawal
-            convertToHistory(result, txHash, rpc).then( records => {
+            const txHash = '0x' + tx.substr(64, 64);
+            let hist = convertToHistory(result, txHash, rpc);
+            historyPromises.push(hist);
+            /*convertToHistory(result, txHash, rpc).then( records => {
               for (let oneRec of records) {
                 console.log(`History record @${oneRec.index}: ${oneRec.record.toJson()}`);
                 zpState.history.put(oneRec.index, oneRec.record);
               };
             }, reason => {
               console.error(reason);
-            });
+            });*/
           }
 
           // try history storage
@@ -338,6 +347,18 @@ export class ZeropoolClient {
       const avgSpeed = msElapsed / txCount
 
       console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+
+
+      let historyRedords = await Promise.all(historyPromises);
+      for (let oneSet of historyRedords) {
+        for (let oneRec of oneSet) {
+          console.log(`History record @${oneRec.index} has been created`);
+          zpState.history.put(oneRec.index, oneRec.record);
+        }
+      }
+
+      console.log(`History has been synced`);
+
 
       // Pass the obtained data to the history resolver
       // Do not wait for finishing (it's not important for making transactions)
@@ -360,6 +381,7 @@ export class ZeropoolClient {
 
     // First try do decrypt account and outcoming notes
     const pair = state.account.decryptPair(data);
+
     if (pair) {
       // It's definitely our transaction since accound was decrypted
       const in_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
@@ -387,6 +409,7 @@ export class ZeropoolClient {
     } else {
       // Second try do decrypt incoming notes
       const onlyNotes = state.account.decryptNotes(data);
+
       if (onlyNotes.length > 0) {
         // There is definitely incoming notes (but transaction isn't our)
 
@@ -406,10 +429,8 @@ export class ZeropoolClient {
 
       } else {
         // This transaction isn't belongs to our account
-        
-        // Do not store hashes [TODO: need to check]
-        //console.info(`📝 Adding hashes to state (at index ${index})`);
-        //state.account.addHashes(BigInt(index), hashes);
+        console.info(`📝 Adding hashes to state (at index ${index})`);
+        state.account.addHashes(BigInt(index), hashes);
       }
     }
 

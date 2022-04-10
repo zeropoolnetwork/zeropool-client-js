@@ -39,6 +39,7 @@ export declare class HistoryStorage {
     private db;
     constructor(db: IDBPDatabase);
     static init(db_id: string): Promise<HistoryStorage>;
+    getAllHistory(): Promise<HistoryRecord[]>;
     put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
     get(index: number): Promise<HistoryRecord | null>;
 }

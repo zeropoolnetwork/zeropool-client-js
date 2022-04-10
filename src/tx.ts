@@ -177,9 +177,9 @@ export class ShieldedTx {
     assertNotNull(tx.outCommit);
     tx.transferIndex = reader.readBigInt(6)!;
     assertNotNull(tx.transferIndex);
-    tx.energyAmount = reader.readBigInt(14)!;
+    tx.energyAmount = reader.readSignedBigInt(14)!;
     assertNotNull(tx.energyAmount);
-    tx.tokenAmount = reader.readBigInt(8)!;
+    tx.tokenAmount = reader.readSignedBigInt(8)!;
     assertNotNull(tx.tokenAmount);
     tx.transactProof = reader.readBigIntArray(8, 32);
     tx.rootAfter = reader.readBigInt(32)!;

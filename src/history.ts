@@ -19,6 +19,7 @@ export interface DecryptedMemo {
   outNotes: { note: Note, index: number }[];
 }
 
+
 export class HistoryRecord {
   constructor(
     public type: HistoryTransactionType,
@@ -68,7 +69,6 @@ export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcU
               const feeAmount = BigInt('0x' + tx.memo.substr(0, 16))
 
               if (tx.selector.toLowerCase() == "af989083") {
-                //if (tx.transferIndex == memo.index) {
                   // All data is collected here. Let's analyze it
 
                   let allRecords: HistoryRecordIdx[] = [];
@@ -110,7 +110,7 @@ export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcU
                     // 2. somebody (including this acc) initiated it => incoming tx(s)
                     for (let {note, index} of memo.inNotes) {
                       const destAddr = assembleAddress(note.d, note.p_d);
-                      let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, destAddr, "", BigInt(note.b), BigInt(0), txHash);
+                      let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
                       allRecords.push(HistoryRecordIdx.create(rec, index));
                     }
                   } else if (tx.txType == TxType.Withdraw) {
@@ -123,9 +123,6 @@ export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcU
 
                   return allRecords;
 
-                //} else {
-                //  throw new Error(`Transaction ${txHash} doesn't corresponds to the memo! (tx index ${tx.transferIndex} != memo index ${memo.index}`);
-                //}
               } else {
                 throw new Error(`Cannot decode calldata for tx ${txHash}: incorrect selector ${tx.selector}`);
               }
@@ -162,9 +159,11 @@ export class HistoryStorage {
     return cache;
   }
 
-  /*public async getAllHistory(): Promise<Array | null> {
-      return null;
-  }*/
+  public async getAllHistory(): Promise<HistoryRecord[]> {
+    let allRecords: HistoryRecord[] = await this.db.getAll(TX_TABLE);
+
+    return allRecords;
+  }
 
   public async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
     await this.db.put(TX_TABLE, data, index);

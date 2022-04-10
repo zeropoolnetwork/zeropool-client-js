@@ -1,6 +1,7 @@
 import { Output } from 'libzeropool-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
 import { NetworkBackend } from './networks/network';
+import { HistoryRecord } from './history';
 export interface RelayerInfo {
     root: string;
     deltaIndex: string;
@@ -36,6 +37,7 @@ export declare class ZeropoolClient {
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
     rawState(tokenAddress: string): Promise<any>;
+    getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     updateState(tokenAddress: string): Promise<void>;
     /**
      * Attempt to extract and save usable account/notes from transaction data.

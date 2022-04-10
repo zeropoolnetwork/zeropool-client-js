@@ -6,6 +6,8 @@ import { FileCache } from './file-cache';
 
 export { ZeropoolClient } from './client';
 
+export { HistoryRecord, HistoryTransactionType } from './history'
+
 export class ZeroPoolLibState {
   public fileCache: FileCache;
   public worker: any;
