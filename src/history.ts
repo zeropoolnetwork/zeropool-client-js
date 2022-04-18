@@ -3,7 +3,8 @@ import Web3 from 'web3';
 import Personal from 'web3-eth-personal';
 import { Account, Note, assembleAddress } from 'libzeropool-rs-wasm-web';
 import { ShieldedTx, TxType } from './tx';
-import { truncateHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
+import { truncateHexPrefix, addHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
+import { CONSTANTS } from './constants';
 
 export enum HistoryTransactionType {
 	Deposit = 1,
@@ -49,6 +50,20 @@ export class HistoryRecordIdx {
     return result;
   }
 }
+
+export class TxHashIdx {
+  index: number;
+  txHash: string;
+
+  public static create(txHash: string, index: number): TxHashIdx {
+    let result = new TxHashIdx();
+    result.index = index;
+    result.txHash = txHash;
+
+    return result;
+  }
+}
+
 
 export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcUrl: string): Promise<HistoryRecordIdx[]> {
     const web3 = new Web3(rpcUrl);
@@ -140,6 +155,11 @@ export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcU
 
 
 const TX_TABLE = 'TX_STORE';
+const NATIVE_TX_TABLE = 'NATIVE_TX';
+const DECRYPTED_MEMO_TABLE = 'DECRYPTED_MEMO';
+
+// History storage holds the parsed history records corresponding to the current account
+// and transaction hashes (on the native chain) which are needed for the history retrieving
 
 export class HistoryStorage {
   private db: IDBPDatabase;
@@ -149,9 +169,13 @@ export class HistoryStorage {
   }
 
   static async init(db_id: string): Promise<HistoryStorage> {
-    const db = await openDB(`zeropool.${db_id}.history`, 1, {
+    const db = await openDB(`zeropool.${db_id}.history`, 2, {
       upgrade(db) {
-        db.createObjectStore(TX_TABLE);
+        db.createObjectStore(TX_TABLE);   // table holds parsed history transactions
+        db.createObjectStore(NATIVE_TX_TABLE);  // holds txHashes on the native chain
+                                                // corresponded to the index
+                                                // (index should be multiple 128)
+        db.createObjectStore(DECRYPTED_MEMO_TABLE);  // holds memo blocks decrypted in the updateState process
       }
     });
 
@@ -173,5 +197,30 @@ export class HistoryStorage {
   public async get(index: number): Promise<HistoryRecord | null> {
     let data = await this.db.get(TX_TABLE, index);
     return data;
+  }
+
+
+  public async saveNativeTxHash(index: number, txHash: string): Promise<string> {
+    const mask = (-1) << CONSTANTS.OUTLOG;
+    await this.db.put(NATIVE_TX_TABLE, txHash, index & mask);
+    return txHash;
+  }
+
+  public async getNativeTxHash(index: number): Promise<string | null> {
+    const mask = (-1) << CONSTANTS.OUTLOG;
+    let txHash = await this.db.get(NATIVE_TX_TABLE, index & mask);
+    return txHash;
+  }
+
+  public async saveDecryptedMemo(index: number, memo: DecryptedMemo): Promise<DecryptedMemo> {
+    const mask = (-1) << CONSTANTS.OUTLOG;
+    await this.db.put(DECRYPTED_MEMO_TABLE, memo, index & mask);
+    return memo;
+  }
+
+  public async getDecryptedMemo(index: number): Promise<DecryptedMemo | null> {
+    const mask = (-1) << CONSTANTS.OUTLOG;
+    let memo = await this.db.get(DECRYPTED_MEMO_TABLE, index & mask);
+    return memo;
   }
 }

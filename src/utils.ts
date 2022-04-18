@@ -55,6 +55,14 @@ export function truncateHexPrefix(data: string): string {
   return data;
 }
 
+export function addHexPrefix(data: string): string {
+  if (data.startsWith('0x') == false) {
+    data = `0x` + data;
+  }
+
+  return data;
+}
+
 export function hexToBuf(hex: string): Uint8Array {
   if (hex.length % 2 !== 0) {
     throw new Error('Invalid hex string');

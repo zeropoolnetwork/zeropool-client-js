@@ -310,32 +310,27 @@ export class ZeropoolClient {
           }
 
 
-          // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
-          const memo = tx.slice(128); // Skip commitment
-
+          // Get the first leaf index in the tree
           const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
+          
+          // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
+          // ...save txHash
+          const txHash = '0x' + tx.substr(64, 64);
+          zpState.history.saveNativeTxHash(memo_idx, txHash);
+          // ...extract memo block
+          const memo = tx.slice(128); // Skip commitment and txHash
 
-          // workaround relayer bug: it returns mem
+          
           const hashes = parseHashes(memo);
-          let result = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
+          let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
+          if (myMemo) {
+            // if memo block corresponding to the our account - save it to restore history
+            zpState.history.saveDecryptedMemo(memo_idx, myMemo);
 
-          if (result) {
-            const txHash = '0x' + tx.substr(64, 64);
-            let hist = convertToHistory(result, txHash, rpc);
+            // try to convert history on the fly
+            let hist = convertToHistory(myMemo, txHash, rpc);
             historyPromises.push(hist);
-            /*convertToHistory(result, txHash, rpc).then( records => {
-              for (let oneRec of records) {
-                console.log(`History record @${oneRec.index}: ${oneRec.record.toJson()}`);
-                zpState.history.put(oneRec.index, oneRec.record);
-              };
-            }, reason => {
-              console.error(reason);
-            });*/
           }
-
-          // try history storage
-          //let record = new HistoryRecord(HistoryTransactionType.Deposit, 0, "from me", "to you", BigInt(1000), "0xa95524d81e91f6eb92a72de3cbe85c07489587c163ab92ca205d453c53b23f76");
-          //state.history.put(index, record);
         }
 
         ++curBatch;

@@ -34,6 +34,11 @@ export declare class HistoryRecordIdx {
     record: HistoryRecord;
     static create(record: HistoryRecord, index: number): HistoryRecordIdx;
 }
+export declare class TxHashIdx {
+    index: number;
+    txHash: string;
+    static create(txHash: string, index: number): TxHashIdx;
+}
 export declare function convertToHistory(memo: DecryptedMemo, txHash: string, rpcUrl: string): Promise<HistoryRecordIdx[]>;
 export declare class HistoryStorage {
     private db;
@@ -42,4 +47,8 @@ export declare class HistoryStorage {
     getAllHistory(): Promise<HistoryRecord[]>;
     put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
     get(index: number): Promise<HistoryRecord | null>;
+    saveNativeTxHash(index: number, txHash: string): Promise<string>;
+    getNativeTxHash(index: number): Promise<string | null>;
+    saveDecryptedMemo(index: number, memo: DecryptedMemo): Promise<DecryptedMemo>;
+    getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
 }
