@@ -74,6 +74,7 @@ export class ZeropoolClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
+  private updateStatePromise: Promise<void> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZeropoolClient> {
     const client = new ZeropoolClient();
@@ -271,8 +272,20 @@ export class ZeropoolClient {
     return await this.zpStates[tokenAddress].history.getAllHistory();
   }
 
+  public async updateState(tokenAddress: string) {
+    if (this.updateStatePromise == undefined) {
+      this.updateStatePromise = this.updateStateWorker(tokenAddress).then( _ => {
+        this.updateStatePromise = undefined;
+      });
+    } else {
+      console.info(`The state currently updating, waiting for finish...`);
+    }
+
+    await this.updateStatePromise;
+  }
+
   // TODO: Verify the information sent by the relayer!
-  public async updateState(tokenAddress: string): Promise<void> {
+  private async updateStateWorker(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
 
@@ -314,18 +327,20 @@ export class ZeropoolClient {
           const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
           
           // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
-          // ...save txHash
-          const txHash = '0x' + tx.substr(64, 64);
-          zpState.history.saveNativeTxHash(memo_idx, txHash);
-          // ...extract memo block
+          // 1. Extract memo block
           const memo = tx.slice(128); // Skip commitment and txHash
 
-          
+          // 2. Get all hashes from the memo
           const hashes = parseHashes(memo);
+
+          // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
           let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
           if (myMemo) {
-            // if memo block corresponding to the our account - save it to restore history
+            // if memo block corresponds to the our account - save it to restore history
             zpState.history.saveDecryptedMemo(memo_idx, myMemo);
+            // ...and save txHash
+            const txHash = '0x' + tx.substr(64, 64);
+            zpState.history.saveNativeTxHash(memo_idx, txHash);
 
             // try to convert history on the fly
             let hist = convertToHistory(myMemo, txHash, rpc);
@@ -342,7 +357,6 @@ export class ZeropoolClient {
       const avgSpeed = msElapsed / txCount
 
       console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
-
 
       let historyRedords = await Promise.all(historyPromises);
       for (let oneSet of historyRedords) {

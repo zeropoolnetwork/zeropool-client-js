@@ -163,6 +163,7 @@ const DECRYPTED_MEMO_TABLE = 'DECRYPTED_MEMO';
 
 export class HistoryStorage {
   private db: IDBPDatabase;
+  private syncHistoryPromise: Promise<void> | undefined;
 
   constructor(db: IDBPDatabase) {
     this.db = db;
@@ -183,10 +184,25 @@ export class HistoryStorage {
     return cache;
   }
 
-  public async getAllHistory(): Promise<HistoryRecord[]> {
+  public async getAllHistory(rpc: string): Promise<HistoryRecord[]> {
+    if (this.syncHistoryPromise == undefined) {
+      this.syncHistoryPromise = this.syncHistory(rpc).then(_ => {
+        this.syncHistoryPromise = undefined;
+      });
+    }
+
+    await this.syncHistoryPromise;
+
     let allRecords: HistoryRecord[] = await this.db.getAll(TX_TABLE);
 
     return allRecords;
+  }
+
+  private async syncHistory(rpc: string): Promise<void> {
+    let allDecryptedMemos: HistoryRecord[] = await this.db.getAll(DECRYPTED_MEMO_TABLE);
+
+    if 
+
   }
 
   public async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
