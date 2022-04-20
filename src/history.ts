@@ -65,98 +65,10 @@ export class TxHashIdx {
 }
 
 
-export async function convertToHistory(memo: DecryptedMemo, txHash: string, rpcUrl: string): Promise<HistoryRecordIdx[]> {
-    const web3 = new Web3(rpcUrl);
-    const txData = await web3.eth.getTransaction(txHash);
-    if (txData && txData.blockNumber && txData.input) {
-        const block = await web3.eth.getBlock(txData.blockNumber);
-        if (block) {
-            let ts: number = 0;
-            if (typeof block.timestamp === "number" ) {
-                ts = block.timestamp;
-            } else if (typeof block.timestamp === "string" ) {
-                ts = Number(block.timestamp);
-            }
-
-            // Decode transaction data
-            try {
-              const tx = ShieldedTx.decode(txData.input);
-              const feeAmount = BigInt('0x' + tx.memo.substr(0, 16))
-
-              if (tx.selector.toLowerCase() == "af989083") {
-                  // All data is collected here. Let's analyze it
-
-                  let allRecords: HistoryRecordIdx[] = [];
-                  if (tx.txType == TxType.Deposit) {
-                    // here is a deposit transaction (approvable method)
-                    // source address are recovered from the signature
-                    if (tx.extra && tx.extra.length >= 128) {
-                      const fullSig = toCanonicalSignature(tx.extra.substr(0, 128));
-                      const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
-                      const depositHolderAddr = await web3.eth.accounts.recover(nullifier, fullSig);
-
-                      let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash);
-                      allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-                      
-                    } else {
-                      //incorrect signature
-                      throw new Error(`no signature for approvable deposit`);
-                    }
-
-                  } else if (tx.txType == TxType.BridgeDeposit) {
-                    // here is a deposit transaction (permittable token)
-                    // source address in the memo block (20 bytes, starts from 16 bytes offset)
-                    const depositHolderAddr = '0x' + tx.memo.substr(32, 40);  // TODO: Check it!
-
-                    let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash);
-                    allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-
-                  } else if (tx.txType == TxType.Transfer) {
-                    // there are 2 cases: 
-                    if (memo.acc) {
-                      // 1. we initiated it => outcoming tx(s)
-                      for (let {note, index} of memo.outNotes) {
-                        const destAddr = assembleAddress(note.d, note.p_d);
-                        let rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
-                        allRecords.push(HistoryRecordIdx.create(rec, index));
-                      }
-                    }
-
-                    // 2. somebody (including this acc) initiated it => incoming tx(s)
-                    for (let {note, index} of memo.inNotes) {
-                      const destAddr = assembleAddress(note.d, note.p_d);
-                      let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
-                      allRecords.push(HistoryRecordIdx.create(rec, index));
-                    }
-                  } else if (tx.txType == TxType.Withdraw) {
-                    // withdrawal transaction (destination address in the memoblock)
-                    const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
-
-                    let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, (-tx.tokenAmount - feeAmount), feeAmount, txHash);
-                    allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-                  }
-
-                  return allRecords;
-
-              } else {
-                throw new Error(`Cannot decode calldata for tx ${txHash}: incorrect selector ${tx.selector}`);
-              }
-            }
-            catch (e) {
-              throw new Error(`Cannot decode calldata for tx ${txHash}: ${e}`);
-            }
-        }
-
-        throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
-    }
-
-    throw new Error(`Unable to get transaction details (${txHash})`);
-  }
-
-
 const TX_TABLE = 'TX_STORE';
 const NATIVE_TX_TABLE = 'NATIVE_TX';
 const DECRYPTED_MEMO_TABLE = 'DECRYPTED_MEMO';
+const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 
 // History storage holds the parsed history records corresponding to the current account
 // and transaction hashes (on the native chain) which are needed for the history retrieving
@@ -177,6 +89,7 @@ export class HistoryStorage {
                                                 // corresponded to the index
                                                 // (index should be multiple 128)
         db.createObjectStore(DECRYPTED_MEMO_TABLE);  // holds memo blocks decrypted in the updateState process
+        db.createObjectStore(HISTORY_STATE_TABLE);   
       }
     });
 
@@ -199,10 +112,56 @@ export class HistoryStorage {
   }
 
   private async syncHistory(rpc: string): Promise<void> {
-    let allDecryptedMemos: HistoryRecord[] = await this.db.getAll(DECRYPTED_MEMO_TABLE);
+    const startTime = Date.now();
 
-    if 
+    let syncIndex:number = await this.db.get(HISTORY_STATE_TABLE, 'sync_index');
+    if (syncIndex == undefined) {
+      syncIndex = -1;
+    }
 
+    let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE);  // IDBKeyRange.lowerBound(syncIndex, true)
+
+    const msElapsed1 = Date.now() - startTime;
+    console.log(`Sync history: ${allUnprocessedMemos.length} decrypted memos loaded in ${msElapsed1} msec`);
+
+    if (allUnprocessedMemos.length > 0) {
+      console.log(`Starting memo synchronizing from the index ${syncIndex} (${allUnprocessedMemos.length} unprocessed memos)`);
+
+      let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
+      for (let oneMemo of allUnprocessedMemos) {
+        let hist = this.convertToHistory(oneMemo, rpc);
+        historyPromises.push(hist);
+      }
+
+      const msElapsed2 = Date.now() - startTime;
+
+      console.log(`Sync history: ${historyPromises.length} convert promises created in ${msElapsed2 - msElapsed1} msec`);
+
+      let historyRedords = await Promise.all(historyPromises);
+
+      const msElapsed3 = Date.now() - startTime;
+
+      console.log(`Sync history: ${historyPromises.length} convert promises finished in ${msElapsed3 - msElapsed2} msec`);
+
+      let newSyncIndex = syncIndex;
+      for (let oneSet of historyRedords) {
+        for (let oneRec of oneSet) {
+          console.log(`History record @${oneRec.index} has been created`);
+          this.put(oneRec.index, oneRec.record);
+          newSyncIndex = oneRec.index;
+        }
+      }
+
+      const msElapsed4 = Date.now() - startTime;
+
+      console.log(`Sync history: history records have been saved in ${msElapsed4 - msElapsed3} msec`);
+
+      await this.db.put(HISTORY_STATE_TABLE, newSyncIndex, 'sync_index');
+
+      console.log(`History has been synced up to index ${newSyncIndex} in ${msElapsed4} msec`);
+    } else {
+      console.log(`Memo sync is not required: already up-to-date (on index ${syncIndex})`);
+    }
   }
 
   public async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
@@ -239,4 +198,98 @@ export class HistoryStorage {
     let memo = await this.db.get(DECRYPTED_MEMO_TABLE, index & mask);
     return memo;
   }
+
+  private async convertToHistory(memo: DecryptedMemo, rpcUrl: string): Promise<HistoryRecordIdx[]> {
+    const web3 = new Web3(rpcUrl);
+    let txHash = await this.getNativeTxHash(memo.index);
+    if (txHash) {
+      const txData = await web3.eth.getTransaction(txHash);
+      if (txData && txData.blockNumber && txData.input) {
+          const block = await web3.eth.getBlock(txData.blockNumber);
+          if (block) {
+              let ts: number = 0;
+              if (typeof block.timestamp === "number" ) {
+                  ts = block.timestamp;
+              } else if (typeof block.timestamp === "string" ) {
+                  ts = Number(block.timestamp);
+              }
+
+              // Decode transaction data
+              try {
+                const tx = ShieldedTx.decode(txData.input);
+                const feeAmount = BigInt('0x' + tx.memo.substr(0, 16))
+
+                if (tx.selector.toLowerCase() == "af989083") {
+                    // All data is collected here. Let's analyze it
+
+                    let allRecords: HistoryRecordIdx[] = [];
+                    if (tx.txType == TxType.Deposit) {
+                      // here is a deposit transaction (approvable method)
+                      // source address are recovered from the signature
+                      if (tx.extra && tx.extra.length >= 128) {
+                        const fullSig = toCanonicalSignature(tx.extra.substr(0, 128));
+                        const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
+                        const depositHolderAddr = await web3.eth.accounts.recover(nullifier, fullSig);
+
+                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash);
+                        allRecords.push(HistoryRecordIdx.create(rec, memo.index));
+                        
+                      } else {
+                        //incorrect signature
+                        throw new Error(`no signature for approvable deposit`);
+                      }
+
+                    } else if (tx.txType == TxType.BridgeDeposit) {
+                      // here is a deposit transaction (permittable token)
+                      // source address in the memo block (20 bytes, starts from 16 bytes offset)
+                      const depositHolderAddr = '0x' + tx.memo.substr(32, 40);  // TODO: Check it!
+
+                      let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash);
+                      allRecords.push(HistoryRecordIdx.create(rec, memo.index));
+
+                    } else if (tx.txType == TxType.Transfer) {
+                      // there are 2 cases: 
+                      if (memo.acc) {
+                        // 1. we initiated it => outcoming tx(s)
+                        for (let {note, index} of memo.outNotes) {
+                          const destAddr = assembleAddress(note.d, note.p_d);
+                          let rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+                          allRecords.push(HistoryRecordIdx.create(rec, index));
+                        }
+                      }
+
+                      // 2. somebody (including this acc) initiated it => incoming tx(s)
+                      for (let {note, index} of memo.inNotes) {
+                        const destAddr = assembleAddress(note.d, note.p_d);
+                        let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
+                        allRecords.push(HistoryRecordIdx.create(rec, index));
+                      }
+                    } else if (tx.txType == TxType.Withdraw) {
+                      // withdrawal transaction (destination address in the memoblock)
+                      const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
+
+                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, (-tx.tokenAmount - feeAmount), feeAmount, txHash);
+                      allRecords.push(HistoryRecordIdx.create(rec, memo.index));
+                    }
+
+                    return allRecords;
+
+                } else {
+                  throw new Error(`Cannot decode calldata for tx ${txHash}: incorrect selector ${tx.selector}`);
+                }
+              }
+              catch (e) {
+                throw new Error(`Cannot decode calldata for tx ${txHash}: ${e}`);
+              }
+          }
+
+          throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
+      }
+
+      throw new Error(`Unable to get transaction details (${txHash})`);
+    }
+
+    throw new Error(`Cannot find txHash for memo at index ${memo.index}`);
+  }
+
 }

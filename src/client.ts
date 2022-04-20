@@ -6,7 +6,7 @@ import { ZeroPoolState } from './state';
 import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage, DecryptedMemo, convertToHistory } from './history'
+import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage, DecryptedMemo } from './history'
 
 export interface RelayerInfo {
   root: string;
@@ -269,7 +269,10 @@ export class ZeropoolClient {
   
   public async getAllHistory(tokenAddress: string): Promise<HistoryRecord[]> {
     await this.updateState(tokenAddress);
-    return await this.zpStates[tokenAddress].history.getAllHistory();
+
+    let rpc = this.config.network.getRpcUrl();
+
+    return await this.zpStates[tokenAddress].history.getAllHistory(rpc);
   }
 
   public async updateState(tokenAddress: string) {
@@ -302,7 +305,7 @@ export class ZeropoolClient {
 
       let curBatch = 0;
       let isLastBatch = false;
-      let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
+      //let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
       do {
         const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
           .filter((val) => !!val);
@@ -343,8 +346,8 @@ export class ZeropoolClient {
             zpState.history.saveNativeTxHash(memo_idx, txHash);
 
             // try to convert history on the fly
-            let hist = convertToHistory(myMemo, txHash, rpc);
-            historyPromises.push(hist);
+            //let hist = convertToHistory(myMemo, txHash, rpc);
+            //historyPromises.push(hist);
           }
         }
 
@@ -358,15 +361,14 @@ export class ZeropoolClient {
 
       console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
-      let historyRedords = await Promise.all(historyPromises);
+      /*let historyRedords = await Promise.all(historyPromises);
       for (let oneSet of historyRedords) {
         for (let oneRec of oneSet) {
           console.log(`History record @${oneRec.index} has been created`);
           zpState.history.put(oneRec.index, oneRec.record);
         }
       }
-
-      console.log(`History has been synced`);
+      console.log(`History has been synced`);*/
 
 
       // Pass the obtained data to the history resolver
