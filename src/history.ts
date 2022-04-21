@@ -75,6 +75,7 @@ const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 
 export class HistoryStorage {
   private db: IDBPDatabase;
+  private cachedMemo: DecryptedMemo[];
   private syncHistoryPromise: Promise<void> | undefined;
 
   constructor(db: IDBPDatabase) {
@@ -93,8 +94,8 @@ export class HistoryStorage {
       }
     });
 
-    const cache = new HistoryStorage(db);
-    return cache;
+    const storage = new HistoryStorage(db);
+    return storage;
   }
 
   public async getAllHistory(rpc: string): Promise<HistoryRecord[]> {
@@ -119,10 +120,10 @@ export class HistoryStorage {
       syncIndex = -1;
     }
 
-    let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE);  // IDBKeyRange.lowerBound(syncIndex, true)
+    let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE, IDBKeyRange.lowerBound(syncIndex, true));
 
-    const msElapsed1 = Date.now() - startTime;
-    console.log(`Sync history: ${allUnprocessedMemos.length} decrypted memos loaded in ${msElapsed1} msec`);
+    //const msElapsed1 = Date.now() - startTime;
+    //console.log(`Sync history: ${allUnprocessedMemos.length} decrypted memos loaded in ${msElapsed1} msec`);
 
     if (allUnprocessedMemos.length > 0) {
       console.log(`Starting memo synchronizing from the index ${syncIndex} (${allUnprocessedMemos.length} unprocessed memos)`);
@@ -133,15 +134,7 @@ export class HistoryStorage {
         historyPromises.push(hist);
       }
 
-      const msElapsed2 = Date.now() - startTime;
-
-      console.log(`Sync history: ${historyPromises.length} convert promises created in ${msElapsed2 - msElapsed1} msec`);
-
       let historyRedords = await Promise.all(historyPromises);
-
-      const msElapsed3 = Date.now() - startTime;
-
-      console.log(`Sync history: ${historyPromises.length} convert promises finished in ${msElapsed3 - msElapsed2} msec`);
 
       let newSyncIndex = syncIndex;
       for (let oneSet of historyRedords) {
@@ -152,13 +145,10 @@ export class HistoryStorage {
         }
       }
 
-      const msElapsed4 = Date.now() - startTime;
-
-      console.log(`Sync history: history records have been saved in ${msElapsed4 - msElapsed3} msec`);
-
       await this.db.put(HISTORY_STATE_TABLE, newSyncIndex, 'sync_index');
 
-      console.log(`History has been synced up to index ${newSyncIndex} in ${msElapsed4} msec`);
+      const timeMs = Date.now() - startTime;
+      console.log(`History has been synced up to index ${newSyncIndex} in ${timeMs} msec`);
     } else {
       console.log(`Memo sync is not required: already up-to-date (on index ${syncIndex})`);
     }

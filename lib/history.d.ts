@@ -41,6 +41,7 @@ export declare class TxHashIdx {
 }
 export declare class HistoryStorage {
     private db;
+    private cachedMemo;
     private syncHistoryPromise;
     constructor(db: IDBPDatabase);
     static init(db_id: string): Promise<HistoryStorage>;
