@@ -41,17 +41,19 @@ export declare class TxHashIdx {
 }
 export declare class HistoryStorage {
     private db;
-    private cachedMemo;
+    private syncIndex;
+    private unparsedMemo;
     private syncHistoryPromise;
     constructor(db: IDBPDatabase);
     static init(db_id: string): Promise<HistoryStorage>;
+    preloadMemos(): Promise<void>;
     getAllHistory(rpc: string): Promise<HistoryRecord[]>;
     private syncHistory;
     put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
     get(index: number): Promise<HistoryRecord | null>;
     saveNativeTxHash(index: number, txHash: string): Promise<string>;
     getNativeTxHash(index: number): Promise<string | null>;
-    saveDecryptedMemo(index: number, memo: DecryptedMemo): Promise<DecryptedMemo>;
+    saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo>;
     getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
     private convertToHistory;
 }

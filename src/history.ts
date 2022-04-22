@@ -75,7 +75,8 @@ const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 
 export class HistoryStorage {
   private db: IDBPDatabase;
-  private cachedMemo: DecryptedMemo[];
+  private syncIndex = -1;
+  private unparsedMemo = new Map<number, DecryptedMemo>();  // local cache of the decrypted memos
   private syncHistoryPromise: Promise<void> | undefined;
 
   constructor(db: IDBPDatabase) {
@@ -95,7 +96,23 @@ export class HistoryStorage {
     });
 
     const storage = new HistoryStorage(db);
+    await storage.preloadMemos();
+
     return storage;
+  }
+
+  public async preloadMemos() {
+    let syncIndex:number = await this.db.get(HISTORY_STATE_TABLE, 'sync_index');
+    if (syncIndex ) {
+      this.syncIndex = syncIndex;
+    }
+
+    let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE, IDBKeyRange.lowerBound(this.syncIndex + 1));
+    for (let oneMemo of allUnprocessedMemos) {
+      this.unparsedMemo.set(oneMemo.index, oneMemo);
+    }
+
+    console.log(`HistoryStorage: preload ${allUnprocessedMemos.length} unparsed memos (from index ${this.syncIndex + 1})`);
   }
 
   public async getAllHistory(rpc: string): Promise<HistoryRecord[]> {
@@ -115,28 +132,21 @@ export class HistoryStorage {
   private async syncHistory(rpc: string): Promise<void> {
     const startTime = Date.now();
 
-    let syncIndex:number = await this.db.get(HISTORY_STATE_TABLE, 'sync_index');
-    if (syncIndex == undefined) {
-      syncIndex = -1;
-    }
-
-    let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE, IDBKeyRange.lowerBound(syncIndex, true));
-
-    //const msElapsed1 = Date.now() - startTime;
-    //console.log(`Sync history: ${allUnprocessedMemos.length} decrypted memos loaded in ${msElapsed1} msec`);
-
-    if (allUnprocessedMemos.length > 0) {
-      console.log(`Starting memo synchronizing from the index ${syncIndex} (${allUnprocessedMemos.length} unprocessed memos)`);
+    if (this.unparsedMemo.size > 0) {
+      console.log(`Starting memo synchronizing from the index ${this.syncIndex + 1} (${this.unparsedMemo.size} unprocessed memos)`);
 
       let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
-      for (let oneMemo of allUnprocessedMemos) {
+      let processedIndexes: number[] = [];
+      for (let oneMemo of this.unparsedMemo.values()) {
         let hist = this.convertToHistory(oneMemo, rpc);
         historyPromises.push(hist);
+
+        processedIndexes.push(oneMemo.index);
       }
 
       let historyRedords = await Promise.all(historyPromises);
 
-      let newSyncIndex = syncIndex;
+      let newSyncIndex = this.syncIndex;
       for (let oneSet of historyRedords) {
         for (let oneRec of oneSet) {
           console.log(`History record @${oneRec.index} has been created`);
@@ -145,12 +155,17 @@ export class HistoryStorage {
         }
       }
 
-      await this.db.put(HISTORY_STATE_TABLE, newSyncIndex, 'sync_index');
+      for (let oneIndex of processedIndexes) {
+        this.unparsedMemo.delete(oneIndex);
+      }
+
+      this.syncIndex = newSyncIndex;
+      await this.db.put(HISTORY_STATE_TABLE, this.syncIndex, 'sync_index');
 
       const timeMs = Date.now() - startTime;
-      console.log(`History has been synced up to index ${newSyncIndex} in ${timeMs} msec`);
+      console.log(`History has been synced up to index ${this.syncIndex} in ${timeMs} msec`);
     } else {
-      console.log(`Memo sync is not required: already up-to-date (on index ${syncIndex})`);
+      console.log(`Memo sync is not required: already up-to-date (on index ${this.syncIndex + 1})`);
     }
   }
 
@@ -177,15 +192,23 @@ export class HistoryStorage {
     return txHash;
   }
 
-  public async saveDecryptedMemo(index: number, memo: DecryptedMemo): Promise<DecryptedMemo> {
+  public async saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo> {
     const mask = (-1) << CONSTANTS.OUTLOG;
-    await this.db.put(DECRYPTED_MEMO_TABLE, memo, index & mask);
+    const memoIndex = memo.index & mask;
+
+    if(memo.index > this.syncIndex) {
+      this.unparsedMemo.set(memoIndex, memo);
+    }
+
+    await this.db.put(DECRYPTED_MEMO_TABLE, memo, memoIndex);
     return memo;
   }
 
   public async getDecryptedMemo(index: number): Promise<DecryptedMemo | null> {
     const mask = (-1) << CONSTANTS.OUTLOG;
-    let memo = await this.db.get(DECRYPTED_MEMO_TABLE, index & mask);
+    const memoIndex = index & mask;
+
+    let memo = await this.db.get(DECRYPTED_MEMO_TABLE, memoIndex);
     return memo;
   }
 
