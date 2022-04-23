@@ -454,7 +454,7 @@ export class ZeropoolClient {
 
     if (pair) {
       // It's definitely our transaction since accound was decrypted
-      const in_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
+      /*const in_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
         const address = assembleAddress(note.d, note.p_d);
         if (state.account.isOwnAddress(address)) {
           acc.push({ note, index: index + 1 + noteIndex });
@@ -468,7 +468,21 @@ export class ZeropoolClient {
           acc.push({ note, index: index + 1 + noteIndex });
         }
         return acc;
-      }, []);
+      }, []);*/
+
+      let in_notes: { note: Note, index: number }[] = [];
+      let out_notes: { note: Note, index: number }[] = [];
+      for (let i = 0; i < pair.notes.length; ++i) {
+        const note = pair.notes[i];
+        const address = assembleAddress(note.d, note.p_d);
+        if (state.account.isOwnAddress(address)) {
+          out_notes.push({ note, index: index + 1 + i });
+          in_notes.push({ note, index: index + 1 + i });
+        } else {
+          out_notes.push({ note, index: index + 1 + i });
+        }
+      }
+
 
       console.info(`📝 Adding account, notes, and hashes to state (at index ${index})`);
       state.account.addAccount(BigInt(index), hashes, pair.account, in_notes);
