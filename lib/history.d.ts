@@ -4,7 +4,8 @@ export declare enum HistoryTransactionType {
     Deposit = 1,
     TransferIn = 2,
     TransferOut = 3,
-    Withdrawal = 4
+    Withdrawal = 4,
+    TransferLoopback = 5
 }
 export interface DecryptedMemo {
     index: number;

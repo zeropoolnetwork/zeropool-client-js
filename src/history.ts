@@ -11,6 +11,7 @@ export enum HistoryTransactionType {
 	TransferIn,
   TransferOut,
 	Withdrawal,
+  TransferLoopback,
 }
 
 export interface DecryptedMemo {
@@ -264,17 +265,25 @@ export class HistoryStorage {
                         // 1. we initiated it => outcoming tx(s)
                         for (let {note, index} of memo.outNotes) {
                           const destAddr = assembleAddress(note.d, note.p_d);
-                          let rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+
+                          let rec: HistoryRecord;
+                          if (memo.inNotes.find((obj) => { return obj.index === index})) {
+                            // a special case: loopback transfer
+                            rec = new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, destAddr, destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+                          } else {
+                            // regular transfer to another person
+                            rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+                          }
                           
                           allRecords.push(HistoryRecordIdx.create(rec, index));
                         }
-                      }
-
-                      // 2. somebody initiated it => incoming tx(s)
-                      for (let {note, index} of memo.inNotes) {
-                        const destAddr = assembleAddress(note.d, note.p_d);
-                        let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
-                        allRecords.push(HistoryRecordIdx.create(rec, index));
+                      } else {
+                        // 2. somebody initiated it => incoming tx(s)
+                        for (let {note, index} of memo.inNotes) {
+                          const destAddr = assembleAddress(note.d, note.p_d);
+                          let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
+                          allRecords.push(HistoryRecordIdx.create(rec, index));
+                        }
                       }
                     } else if (tx.txType == TxType.Withdraw) {
                       // withdrawal transaction (destination address in the memoblock)
