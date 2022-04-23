@@ -4,7 +4,8 @@ export declare enum HistoryTransactionType {
     Deposit = 1,
     TransferIn = 2,
     TransferOut = 3,
-    Withdrawal = 4
+    Withdrawal = 4,
+    TransferLoopback = 5
 }
 export interface DecryptedMemo {
     index: number;
@@ -17,6 +18,7 @@ export interface DecryptedMemo {
         note: Note;
         index: number;
     }[];
+    txHash: string | undefined;
 }
 export declare class HistoryRecord {
     type: HistoryTransactionType;
@@ -34,12 +36,26 @@ export declare class HistoryRecordIdx {
     record: HistoryRecord;
     static create(record: HistoryRecord, index: number): HistoryRecordIdx;
 }
-export declare function convertToHistory(memo: DecryptedMemo, txHash: string, rpcUrl: string): Promise<HistoryRecordIdx[]>;
+export declare class TxHashIdx {
+    index: number;
+    txHash: string;
+    static create(txHash: string, index: number): TxHashIdx;
+}
 export declare class HistoryStorage {
     private db;
-    constructor(db: IDBPDatabase);
-    static init(db_id: string): Promise<HistoryStorage>;
+    private syncIndex;
+    private unparsedMemo;
+    private currentHistory;
+    private syncHistoryPromise;
+    private web3;
+    constructor(db: IDBPDatabase, rpcUrl: string);
+    static init(db_id: string, rpcUrl: string): Promise<HistoryStorage>;
+    preloadCache(): Promise<void>;
     getAllHistory(): Promise<HistoryRecord[]>;
-    put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
-    get(index: number): Promise<HistoryRecord | null>;
+    saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo>;
+    getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
+    private syncHistory;
+    private put;
+    private get;
+    private convertToHistory;
 }

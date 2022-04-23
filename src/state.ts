@@ -9,12 +9,12 @@ export class ZeroPoolState {
   public account: UserAccount;
   public history: HistoryStorage;
 
-  public static async create(sk: Uint8Array, networkName: string, denominator: bigint): Promise<ZeroPoolState> {
+  public static async create(sk: Uint8Array, networkName: string, rpcUrl: string, denominator: bigint): Promise<ZeroPoolState> {
     const zpState = new ZeroPoolState();
     zpState.denominator = denominator;
     const userId = bufToHex(hash(sk));
     const state = await UserState.init(`zp.${networkName}.${userId}`);
-    zpState.history = await HistoryStorage.init(`zp.${networkName}.${userId}`);
+    zpState.history = await HistoryStorage.init(`zp.${networkName}.${userId}`, rpcUrl);
 
     try {
       const acc = new UserAccount(sk, state);

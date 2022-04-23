@@ -25,6 +25,7 @@ export declare class ZeropoolClient {
     private snarkParams;
     private tokens;
     private config;
+    private updateStatePromise;
     static create(config: ClientConfig): Promise<ZeropoolClient>;
     generateAddress(tokenAddress: string): string;
     deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string, isBridge?: boolean): Promise<string>;
@@ -39,6 +40,8 @@ export declare class ZeropoolClient {
     rawState(tokenAddress: string): Promise<any>;
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     updateState(tokenAddress: string): Promise<void>;
+    private updateStateWorker;
+    private updateStateNewWorker;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
      * Return decrypted account and notes to proceed history restoring
