@@ -277,7 +277,7 @@ export class ZeropoolClient {
 
   public async updateState(tokenAddress: string) {
     if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateWorker(tokenAddress).then( _ => {
+      this.updateStatePromise = this.updateStateNewWorker(tokenAddress).then( _ => {
         this.updateStatePromise = undefined;
       });
     } else {
@@ -374,6 +374,49 @@ export class ZeropoolClient {
       // Pass the obtained data to the history resolver
       // Do not wait for finishing (it's not important for making transactions)
       //this.updateHistory(decryptedMemos);
+
+    } else {
+      console.log(`Local state is up to date @${startIndex}...`);
+    }
+  }
+
+  private async updateStateNewWorker(tokenAddress: string): Promise<void> {
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
+    const BATCH_SIZE = 100;
+
+    const zpState = this.zpStates[tokenAddress];
+    const token = this.tokens[tokenAddress];
+
+    const startIndex = Number(zpState.account.nextTreeIndex());
+    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+
+    if (nextIndex > startIndex) {
+      const startTime = Date.now();
+      
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+
+      let curBatch = 0;
+      let isLastBatch = false;
+
+      let batches: Promise<void>[] = [];
+
+      for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
+        let oneBatch = fetchTransactions(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
+          console.log(`Getting ${txs.length} transactions from index ${i}`);
+          for (let oneTx of txs) {
+            
+          }
+        });
+        batches.push(oneBatch);
+      };
+
+      await Promise.all(batches);
+
+      const msElapsed = Date.now() - startTime;
+      const txCount = (nextIndex - startIndex) / 128;
+      const avgSpeed = msElapsed / txCount
+
+      console.log(`Sync finished in ${msElapsed / 1000} sec`);
 
     } else {
       console.log(`Local state is up to date @${startIndex}...`);
