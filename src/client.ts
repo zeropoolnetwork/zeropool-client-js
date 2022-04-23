@@ -91,7 +91,7 @@ export class ZeropoolClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, BigInt(denominator));
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
     }
 
     return client;
@@ -270,14 +270,12 @@ export class ZeropoolClient {
   public async getAllHistory(tokenAddress: string): Promise<HistoryRecord[]> {
     await this.updateState(tokenAddress);
 
-    let rpc = this.config.network.getRpcUrl();
-
-    return await this.zpStates[tokenAddress].history.getAllHistory(rpc);
+    return await this.zpStates[tokenAddress].history.getAllHistory();
   }
 
   public async updateState(tokenAddress: string) {
     if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateNewWorker(tokenAddress).then( _ => {
+      this.updateStatePromise = this.updateStateNewWorker(tokenAddress).finally(() => {
         this.updateStatePromise = undefined;
       });
     } else {
@@ -316,8 +314,6 @@ export class ZeropoolClient {
           isLastBatch = true;
         }
 
-        let rpc = this.config.network.getRpcUrl();
-
         for (let i = 0; i < txs.length; ++i) {
           const tx = txs[i];
 
@@ -340,13 +336,11 @@ export class ZeropoolClient {
           let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
           if (myMemo) {
             // if memo block corresponds to the our account - save it to restore history
+            myMemo.txHash = '0x' + tx.substr(64, 64);
             zpState.history.saveDecryptedMemo(myMemo);
-            // ...and save txHash
-            const txHash = '0x' + tx.substr(64, 64);
-            zpState.history.saveNativeTxHash(memo_idx, txHash);
 
             // try to convert history on the fly
-            //let hist = convertToHistory(myMemo, txHash, rpc);
+            //let hist = convertToHistory(myMemo, txHash);
             //historyPromises.push(hist);
           }
         }
@@ -398,28 +392,50 @@ export class ZeropoolClient {
       let curBatch = 0;
       let isLastBatch = false;
 
-      let batches: Promise<void>[] = [];
+      let batches: Promise<number>[] = [];
 
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactions(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
-          for (let oneTx of txs) {
+          for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
+            const tx = txs[txIdx];
+            // Get the first leaf index in the tree
+            const memo_idx = i + txIdx * OUTPLUSONE;
             
+            // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
+            // 1. Extract memo block
+            const memo = tx.slice(128); // Skip commitment and txHash
+
+            // 2. Get all hashes from the memo
+            const hashes = parseHashes(memo);
+
+            // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
+            let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
+            if (myMemo) {
+              // if memo block corresponds to the our account - save it to restore history
+              myMemo.txHash = '0x' + tx.substr(64, 64);
+              zpState.history.saveDecryptedMemo(myMemo);
+
+              // try to convert history on the fly
+              //let hist = convertToHistory(myMemo, txHash);
+              //historyPromises.push(hist);
+            }
           }
+
+          return txs.length;
         });
         batches.push(oneBatch);
       };
 
-      await Promise.all(batches);
+      let txCount = (await Promise.all(batches)).reduce((acc, cur) => acc + cur);;
 
       const msElapsed = Date.now() - startTime;
-      const txCount = (nextIndex - startIndex) / 128;
       const avgSpeed = msElapsed / txCount
 
-      console.log(`Sync finished in ${msElapsed / 1000} sec`);
+      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
     } else {
-      console.log(`Local state is up to date @${startIndex}...`);
+      console.log(`Local state is up to date @${startIndex}`);
     }
   }
 
@@ -458,7 +474,7 @@ export class ZeropoolClient {
       state.account.addAccount(BigInt(index), hashes, pair.account, in_notes);
 
 
-      return { index: index, acc: pair.account, inNotes: in_notes, outNotes: out_notes };
+      return { index: index, acc: pair.account, inNotes: in_notes, outNotes: out_notes, txHash: undefined };
 
     } else {
       // Second try do decrypt incoming notes
@@ -479,7 +495,7 @@ export class ZeropoolClient {
         console.info(`📝 Adding notes and hashes to state (at index ${index})`);
         state.account.addNotes(BigInt(index), hashes, notes);
 
-        return { index: index, acc: undefined, inNotes: notes, outNotes: [] };
+        return { index: index, acc: undefined, inNotes: notes, outNotes: [], txHash: undefined };
 
       } else {
         // This transaction isn't belongs to our account

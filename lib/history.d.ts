@@ -17,6 +17,7 @@ export interface DecryptedMemo {
         note: Note;
         index: number;
     }[];
+    txHash: string | undefined;
 }
 export declare class HistoryRecord {
     type: HistoryTransactionType;
@@ -43,17 +44,17 @@ export declare class HistoryStorage {
     private db;
     private syncIndex;
     private unparsedMemo;
+    private currentHistory;
     private syncHistoryPromise;
-    constructor(db: IDBPDatabase);
-    static init(db_id: string): Promise<HistoryStorage>;
-    preloadMemos(): Promise<void>;
-    getAllHistory(rpc: string): Promise<HistoryRecord[]>;
-    private syncHistory;
-    put(index: number, data: HistoryRecord): Promise<HistoryRecord>;
-    get(index: number): Promise<HistoryRecord | null>;
-    saveNativeTxHash(index: number, txHash: string): Promise<string>;
-    getNativeTxHash(index: number): Promise<string | null>;
+    private web3;
+    constructor(db: IDBPDatabase, rpcUrl: string);
+    static init(db_id: string, rpcUrl: string): Promise<HistoryStorage>;
+    preloadCache(): Promise<void>;
+    getAllHistory(): Promise<HistoryRecord[]>;
     saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo>;
     getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
+    private syncHistory;
+    private put;
+    private get;
     private convertToHistory;
 }

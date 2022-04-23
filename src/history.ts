@@ -18,6 +18,7 @@ export interface DecryptedMemo {
   acc: Account | undefined;
   inNotes:  { note: Note, index: number }[];
   outNotes: { note: Note, index: number }[];
+  txHash: string | undefined;
 }
 
 
@@ -66,7 +67,6 @@ export class TxHashIdx {
 
 
 const TX_TABLE = 'TX_STORE';
-const NATIVE_TX_TABLE = 'NATIVE_TX';
 const DECRYPTED_MEMO_TABLE = 'DECRYPTED_MEMO';
 const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 
@@ -76,120 +76,65 @@ const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 export class HistoryStorage {
   private db: IDBPDatabase;
   private syncIndex = -1;
-  private unparsedMemo = new Map<number, DecryptedMemo>();  // local cache of the decrypted memos
+  private unparsedMemo = new Map<number, DecryptedMemo>();  // local decrypted memos cache
+  private currentHistory = new Map<number, HistoryRecord>();  // local history cache
   private syncHistoryPromise: Promise<void> | undefined;
+  private web3;
 
-  constructor(db: IDBPDatabase) {
+  constructor(db: IDBPDatabase, rpcUrl: string) {
     this.db = db;
+    this.web3 = new Web3(rpcUrl);
   }
 
-  static async init(db_id: string): Promise<HistoryStorage> {
+  static async init(db_id: string, rpcUrl: string): Promise<HistoryStorage> {
     const db = await openDB(`zeropool.${db_id}.history`, 2, {
       upgrade(db) {
         db.createObjectStore(TX_TABLE);   // table holds parsed history transactions
-        db.createObjectStore(NATIVE_TX_TABLE);  // holds txHashes on the native chain
-                                                // corresponded to the index
-                                                // (index should be multiple 128)
         db.createObjectStore(DECRYPTED_MEMO_TABLE);  // holds memo blocks decrypted in the updateState process
         db.createObjectStore(HISTORY_STATE_TABLE);   
       }
     });
 
-    const storage = new HistoryStorage(db);
-    await storage.preloadMemos();
+    const storage = new HistoryStorage(db, rpcUrl);
+    await storage.preloadCache();
 
     return storage;
   }
 
-  public async preloadMemos() {
+  public async preloadCache() {
     let syncIndex:number = await this.db.get(HISTORY_STATE_TABLE, 'sync_index');
     if (syncIndex ) {
       this.syncIndex = syncIndex;
     }
 
+    // getting unprocessed memo array
     let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE, IDBKeyRange.lowerBound(this.syncIndex + 1));
     for (let oneMemo of allUnprocessedMemos) {
       this.unparsedMemo.set(oneMemo.index, oneMemo);
     }
 
-    console.log(`HistoryStorage: preload ${allUnprocessedMemos.length} unparsed memos (from index ${this.syncIndex + 1})`);
+    
+    // getting saved history records
+    let cursor = await this.db.transaction(TX_TABLE).store.openCursor();
+    while (cursor) {
+      this.currentHistory.set(Number(cursor.primaryKey), cursor.value);
+      cursor = await cursor.continue();
+    }
+
+    console.log(`HistoryStorage: preload ${this.currentHistory.size} history records and ${this.unparsedMemo.size} unparsed memos (from index ${this.syncIndex + 1})`);
   }
 
-  public async getAllHistory(rpc: string): Promise<HistoryRecord[]> {
+  public async getAllHistory(): Promise<HistoryRecord[]> {
     if (this.syncHistoryPromise == undefined) {
-      this.syncHistoryPromise = this.syncHistory(rpc).then(_ => {
+      this.syncHistoryPromise = this.syncHistory().finally( () => {
         this.syncHistoryPromise = undefined;
       });
     }
 
     await this.syncHistoryPromise;
 
-    let allRecords: HistoryRecord[] = await this.db.getAll(TX_TABLE);
-
-    return allRecords;
-  }
-
-  private async syncHistory(rpc: string): Promise<void> {
-    const startTime = Date.now();
-
-    if (this.unparsedMemo.size > 0) {
-      console.log(`Starting memo synchronizing from the index ${this.syncIndex + 1} (${this.unparsedMemo.size} unprocessed memos)`);
-
-      let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
-      let processedIndexes: number[] = [];
-      for (let oneMemo of this.unparsedMemo.values()) {
-        let hist = this.convertToHistory(oneMemo, rpc);
-        historyPromises.push(hist);
-
-        processedIndexes.push(oneMemo.index);
-      }
-
-      let historyRedords = await Promise.all(historyPromises);
-
-      let newSyncIndex = this.syncIndex;
-      for (let oneSet of historyRedords) {
-        for (let oneRec of oneSet) {
-          console.log(`History record @${oneRec.index} has been created`);
-          this.put(oneRec.index, oneRec.record);
-          newSyncIndex = oneRec.index;
-        }
-      }
-
-      for (let oneIndex of processedIndexes) {
-        this.unparsedMemo.delete(oneIndex);
-      }
-
-      this.syncIndex = newSyncIndex;
-      await this.db.put(HISTORY_STATE_TABLE, this.syncIndex, 'sync_index');
-
-      const timeMs = Date.now() - startTime;
-      console.log(`History has been synced up to index ${this.syncIndex} in ${timeMs} msec`);
-    } else {
-      console.log(`Memo sync is not required: already up-to-date (on index ${this.syncIndex + 1})`);
-    }
-  }
-
-  public async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
-    await this.db.put(TX_TABLE, data, index);
-    return data;
-  }
-
-  public async get(index: number): Promise<HistoryRecord | null> {
-    let data = await this.db.get(TX_TABLE, index);
-    return data;
-  }
-
-
-  public async saveNativeTxHash(index: number, txHash: string): Promise<string> {
-    const mask = (-1) << CONSTANTS.OUTLOG;
-    await this.db.put(NATIVE_TX_TABLE, txHash, index & mask);
-    return txHash;
-  }
-
-  public async getNativeTxHash(index: number): Promise<string | null> {
-    const mask = (-1) << CONSTANTS.OUTLOG;
-    let txHash = await this.db.get(NATIVE_TX_TABLE, index & mask);
-    return txHash;
+    let recordsArray = Array.from(this.currentHistory.values());
+    return recordsArray.sort((rec1, rec2) => 0 - (rec1.timestamp > rec2.timestamp ? -1 : 1));
   }
 
   public async saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo> {
@@ -212,13 +157,66 @@ export class HistoryStorage {
     return memo;
   }
 
-  private async convertToHistory(memo: DecryptedMemo, rpcUrl: string): Promise<HistoryRecordIdx[]> {
-    const web3 = new Web3(rpcUrl);
-    let txHash = await this.getNativeTxHash(memo.index);
+  // ------- Private rouutines --------
+
+  private async syncHistory(): Promise<void> {
+    const startTime = Date.now();
+
+    if (this.unparsedMemo.size > 0) {
+      console.log(`Starting memo synchronizing from the index ${this.syncIndex + 1} (${this.unparsedMemo.size} unprocessed memos)`);
+
+      let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
+      let processedIndexes: number[] = [];
+      for (let oneMemo of this.unparsedMemo.values()) {
+        let hist = this.convertToHistory(oneMemo);
+        historyPromises.push(hist);
+
+        processedIndexes.push(oneMemo.index);
+      }
+
+      let historyRedords = await Promise.all(historyPromises);
+
+      let newSyncIndex = this.syncIndex;
+      for (let oneSet of historyRedords) {
+        for (let oneRec of oneSet) {
+          console.log(`History record @${oneRec.index} has been created`);
+
+          this.currentHistory.set(oneRec.index, oneRec.record);
+          this.put(oneRec.index, oneRec.record);
+          newSyncIndex = oneRec.index;
+        }
+      }
+
+      for (let oneIndex of processedIndexes) {
+        this.unparsedMemo.delete(oneIndex);
+      }
+
+      this.syncIndex = newSyncIndex;
+      this.db.put(HISTORY_STATE_TABLE, this.syncIndex, 'sync_index');
+
+      const timeMs = Date.now() - startTime;
+      console.log(`History has been synced up to index ${this.syncIndex} in ${timeMs} msec`);
+    } else {
+      console.log(`Memo sync is not required: already up-to-date (on index ${this.syncIndex + 1})`);
+    }
+  }
+
+  private async put(index: number, data: HistoryRecord): Promise<HistoryRecord> {
+    await this.db.put(TX_TABLE, data, index);
+    return data;
+  }
+
+  private async get(index: number): Promise<HistoryRecord | null> {
+    let data = await this.db.get(TX_TABLE, index);
+    return data;
+  }
+
+  private async convertToHistory(memo: DecryptedMemo): Promise<HistoryRecordIdx[]> {
+    let txHash = memo.txHash;
     if (txHash) {
-      const txData = await web3.eth.getTransaction(txHash);
+      const txData = await this.web3.eth.getTransaction(txHash);
       if (txData && txData.blockNumber && txData.input) {
-          const block = await web3.eth.getBlock(txData.blockNumber);
+          const block = await this.web3.eth.getBlock(txData.blockNumber);
           if (block) {
               let ts: number = 0;
               if (typeof block.timestamp === "number" ) {
@@ -242,7 +240,7 @@ export class HistoryStorage {
                       if (tx.extra && tx.extra.length >= 128) {
                         const fullSig = toCanonicalSignature(tx.extra.substr(0, 128));
                         const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
-                        const depositHolderAddr = await web3.eth.accounts.recover(nullifier, fullSig);
+                        const depositHolderAddr = await this.web3.eth.accounts.recover(nullifier, fullSig);
 
                         let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash);
                         allRecords.push(HistoryRecordIdx.create(rec, memo.index));
