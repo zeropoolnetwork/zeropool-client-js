@@ -50,10 +50,6 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
 
     await zp.default(wasmPath);
 
-    const txParamsData = await fileCache.getOrCache(snarkParams.transferParamsUrl);
-    const transferParams = zp.Params.fromBinary(new Uint8Array(txParamsData));
-    const treeParamsData = await fileCache.getOrCache(snarkParams.treeParamsUrl);
-    const treeParams = zp.Params.fromBinary(new Uint8Array(treeParamsData));
     const transferVk = await (await fetch(snarkParams.transferVkUrl)).json();
     const treeVk = await (await fetch(snarkParams.treeVkUrl)).json();
 
@@ -61,8 +57,6 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
         fileCache,
         worker,
         snarkParams: {
-            transferParams,
-            treeParams,
             transferVk,
             treeVk,
         }
