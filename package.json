@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -22,7 +22,8 @@
     "libzeropool-rs-wasm-web": "^0.3.8",
     "regenerator-runtime": "^0.13.9",
     "web3": "^1.7.0",
-    "web3-utils": "^1.7.0"
+    "web3-utils": "^1.7.0",
+    "web3-eth-personal": "^1.7.0"
   },
   "devDependencies": {
     "ts-loader": "^9.2.6",

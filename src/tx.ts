@@ -20,6 +20,7 @@ export enum TxType {
   Deposit = '0000',
   Transfer = '0001',
   Withdraw = '0002',
+  BridgeDeposit = '0003',
 }
 
 export function txTypeToString(txType: TxType): string {
@@ -27,6 +28,7 @@ export function txTypeToString(txType: TxType): string {
     case TxType.Deposit: return 'deposit';
     case TxType.Transfer: return 'transfer';
     case TxType.Withdraw: return 'withdraw';
+    case TxType.BridgeDeposit: return 'bridge-deposit';
   }
 }
 
@@ -43,6 +45,7 @@ export class ShieldedTx {
   public treeProof: bigint[];
   public txType: TxType;
   public memo: string;
+  public extra: string;
 
   static async fromData(
     txData: TransactionData,
@@ -118,6 +121,8 @@ export class ShieldedTx {
 
     tx.memo = txData.memo;
 
+    tx.extra = "";
+
     return tx;
   }
 
@@ -153,6 +158,10 @@ export class ShieldedTx {
     writer.writeNumber(this.memo.length / 2, 2);
     writer.writeHex(this.memo);
 
+    if (this.extra.length > 0) {
+      writer.writeHex(this.extra);
+    }
+
     return writer.toString();
   }
 
@@ -168,9 +177,9 @@ export class ShieldedTx {
     assertNotNull(tx.outCommit);
     tx.transferIndex = reader.readBigInt(6)!;
     assertNotNull(tx.transferIndex);
-    tx.energyAmount = reader.readBigInt(14)!;
+    tx.energyAmount = reader.readSignedBigInt(14)!;
     assertNotNull(tx.energyAmount);
-    tx.tokenAmount = reader.readBigInt(8)!;
+    tx.tokenAmount = reader.readSignedBigInt(8)!;
     assertNotNull(tx.tokenAmount);
     tx.transactProof = reader.readBigIntArray(8, 32);
     tx.rootAfter = reader.readBigInt(32)!;
@@ -182,6 +191,12 @@ export class ShieldedTx {
     assertNotNull(memoSize);
     tx.memo = reader.readHex(memoSize)!;
     assertNotNull(tx.memo);
+
+    // Extra data
+    // It contains deposit holder signature for deposit transactions
+    // or any other data which user can append
+    tx.extra = reader.readHexToTheEnd()!;
+    assertNotNull(tx.extra);
 
     return tx;
   }

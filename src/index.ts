@@ -6,6 +6,8 @@ import { FileCache } from './file-cache';
 
 export { ZeropoolClient } from './client';
 
+export { HistoryRecord, HistoryTransactionType } from './history'
+
 export class ZeroPoolLibState {
   public fileCache: FileCache;
   public worker: any;
@@ -21,7 +23,7 @@ export async function init(wasmPath: string, workerPath: string, snarkParams: Sn
     treeParams: snarkParams.treeParamsUrl,
   });
 
-  initWasm(wasmPath);
+  await initWasm(wasmPath);
 
   const txParamsData = await fileCache.getOrCache(snarkParams.transferParamsUrl);
   const transferParams = Params.fromBinary(new Uint8Array(txParamsData));

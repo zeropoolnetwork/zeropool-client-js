@@ -1,6 +1,7 @@
 import { Output } from 'libzeropool-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
 import { NetworkBackend } from './networks/network';
+import { HistoryRecord } from './history';
 export interface RelayerInfo {
     root: string;
     deltaIndex: string;
@@ -24,9 +25,10 @@ export declare class ZeropoolClient {
     private snarkParams;
     private tokens;
     private config;
+    private updateStatePromise;
     static create(config: ClientConfig): Promise<ZeropoolClient>;
     generateAddress(tokenAddress: string): string;
-    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<string>;
+    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string, isBridge?: boolean): Promise<string>;
     transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<string>;
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<string>;
     waitJobCompleted(tokenAddress: string, jobId: string): Promise<string>;
@@ -36,9 +38,13 @@ export declare class ZeropoolClient {
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
     rawState(tokenAddress: string): Promise<any>;
+    getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     updateState(tokenAddress: string): Promise<void>;
+    private updateStateWorker;
+    private updateStateNewWorker;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
+     * Return decrypted account and notes to proceed history restoring
      * @param raw hex-encoded transaction data
      */
     private cacheShieldedTx;

@@ -7,7 +7,8 @@ export declare class InvalidNumberOfOutputs extends Error {
 export declare enum TxType {
     Deposit = "0000",
     Transfer = "0001",
-    Withdraw = "0002"
+    Withdraw = "0002",
+    BridgeDeposit = "0003"
 }
 export declare function txTypeToString(txType: TxType): string;
 /** The universal transaction data format used on most networks. */
@@ -23,6 +24,7 @@ export declare class ShieldedTx {
     treeProof: bigint[];
     txType: TxType;
     memo: string;
+    extra: string;
     static fromData(txData: TransactionData, txType: TxType, acc: UserAccount, snarkParams: {
         transferParams: Params;
         treeParams: Params;
