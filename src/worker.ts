@@ -13,10 +13,25 @@ const obj = {
 
     const cache = await FileCache.init();
 
-    const txParamsData = await cache.getOrCache(paramUrls.txParams);
-    txParams = Params.fromBinary(new Uint8Array(txParamsData));
-    const treeParamsData = await cache.getOrCache(paramUrls.treeParams);
-    treeParams = Params.fromBinary(new Uint8Array(treeParamsData));
+    let txParamsData = await cache.get(paramUrls.txParams);
+    if (!txParamsData) {
+      console.log(`Caching ${paramUrls.txParams}`)
+      txParamsData = await cache.cache(paramUrls.txParams);
+      txParams = Params.fromBinary(new Uint8Array(txParamsData!), true, true);
+    } else {
+      console.log(`File ${paramUrls.txParams} is present in cache, no need to fetch`);
+      txParams = Params.fromBinary(new Uint8Array(txParamsData!), false, false);
+    }
+    
+    let treeParamsData = await cache.get(paramUrls.treeParams);
+    if (!treeParamsData) {
+      console.log(`Caching ${paramUrls.treeParams}`)
+      treeParamsData = await cache.cache(paramUrls.treeParams);
+      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!), true, true);
+    } else {
+      console.log(`File ${paramUrls.treeParams} is present in cache, no need to fetch`);
+      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!), false, false);
+    }
 
     console.info('Web worker init complete.');
   },
