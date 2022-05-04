@@ -39,6 +39,7 @@ export declare class ZeropoolClient {
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
     rawState(tokenAddress: string): Promise<any>;
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
+    cleanState(tokenAddress: string): Promise<void>;
     updateState(tokenAddress: string): Promise<void>;
     private updateStateWorker;
     private updateStateNewWorker;

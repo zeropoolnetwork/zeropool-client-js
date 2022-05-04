@@ -122,7 +122,18 @@ export class ZeropoolClient {
 
     const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    let txData;
+    if (isBridge) {
+      if (fromAddress) {
+        const deadline = String(Math.floor(Date.now() / 1000) + 900);
+        const holder = hexToBuf(fromAddress);
+        txData = await state.account.createDepositPermittable({ amount: amountGwei, fee, deadline, holder});
+      } else {
+        throw new Error('You must provide fromAddress for bridge deposit transaction ');
+      }
+    } else {
+      txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    }
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -134,10 +145,17 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    const nullifier = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    let dataToSign;
+    if (isBridge) {
+      // permittable deposit signature should be calculated for the typed data
+      dataToSign = '0x00';
+    } else {
+      // regular deposit through approve allowance: sign transaction nullifier
+      dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    }
 
     // TODO: Sign fromAddress as well?
-    const signature = truncateHexPrefix(await sign(nullifier));
+    const signature = truncateHexPrefix(await sign(dataToSign));
     let fullSignature = signature;
     if (fromAddress) {
       const addr = truncateHexPrefix(fromAddress);
@@ -150,6 +168,7 @@ export class ZeropoolClient {
 
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
   }
+
 
   public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
@@ -271,6 +290,10 @@ export class ZeropoolClient {
     await this.updateState(tokenAddress);
 
     return await this.zpStates[tokenAddress].history.getAllHistory();
+  }
+
+  public async cleanState(tokenAddress: string): Promise<void> {
+    await this.zpStates[tokenAddress].clean();
   }
 
   public async updateState(tokenAddress: string) {

@@ -54,6 +54,7 @@ export declare class HistoryStorage {
     getAllHistory(): Promise<HistoryRecord[]>;
     saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo>;
     getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
+    cleanHistory(): Promise<void>;
     private syncHistory;
     private put;
     private get;
