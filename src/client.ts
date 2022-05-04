@@ -134,7 +134,18 @@ export class ZeropoolClient {
 
     const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    let txData;
+    if (isBridge) {
+      if (fromAddress) {
+        const deadline = String(Math.floor(Date.now() / 1000) + 900);
+        const holder = hexToBuf(fromAddress);
+        txData = await state.account.createDepositPermittable({ amount: amountGwei, fee, deadline, holder });
+      } else {
+        throw new Error('You must provide fromAddress for bridge deposit transaction ');
+      }
+    } else {
+      txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    }
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -146,10 +157,17 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    const nullifier = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    let dataToSign;
+    if (isBridge) {
+      // permittable deposit signature should be calculated for the typed data
+      dataToSign = '0x00';
+    } else {
+      // regular deposit through approve allowance: sign transaction nullifier
+      dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    }
 
     // TODO: Sign fromAddress as well?
-    const signature = truncateHexPrefix(await sign(nullifier));
+    const signature = truncateHexPrefix(await sign(dataToSign));
     let fullSignature = signature;
     if (fromAddress) {
       const addr = truncateHexPrefix(fromAddress);
@@ -236,7 +254,7 @@ export class ZeropoolClient {
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-    
+
     const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
@@ -300,11 +318,15 @@ export class ZeropoolClient {
   public async rawState(tokenAddress: string): Promise<any> {
     return await this.zpStates[tokenAddress].rawState();
   }
-  
+
   public async getAllHistory(tokenAddress: string): Promise<HistoryRecord[]> {
     await this.updateState(tokenAddress);
 
     return await this.zpStates[tokenAddress].history.getAllHistory();
+  }
+
+  public async cleanState(tokenAddress: string): Promise<void> {
+    await this.zpStates[tokenAddress].clean();
   }
 
   /** Synchronize the inner state with the relayer */
@@ -333,7 +355,7 @@ export class ZeropoolClient {
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
-      
+
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
       let curBatch = 0;
@@ -359,7 +381,7 @@ export class ZeropoolClient {
 
           // Get the first leaf index in the tree
           const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
-          
+
           // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
           // 1. Extract memo block
           const memo = tx.slice(128); // Skip commitment and txHash
@@ -421,7 +443,7 @@ export class ZeropoolClient {
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
-      
+
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
       let curBatch = 0;
@@ -430,13 +452,13 @@ export class ZeropoolClient {
       let batches: Promise<number>[] = [];
 
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-        let oneBatch = fetchTransactions(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
+        let oneBatch = fetchTransactions(token.relayerUrl, BigInt(i), BATCH_SIZE).then(txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
           for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
             const tx = txs[txIdx];
             // Get the first leaf index in the tree
             const memo_idx = i + txIdx * OUTPLUSONE;
-            
+
             // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
             // 1. Extract memo block
             const memo = tx.slice(128); // Skip commitment and txHash

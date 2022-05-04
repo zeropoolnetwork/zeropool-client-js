@@ -159,6 +159,23 @@ export class HistoryStorage {
     return memo;
   }
 
+  public async cleanHistory(): Promise<void> {
+    if (this.syncHistoryPromise) {
+      // wait while sync is finished (if started)
+      await this.syncHistoryPromise;
+    }
+
+    // Remove all records from the database
+    await this.db.clear(TX_TABLE);
+    await this.db.clear(DECRYPTED_MEMO_TABLE);
+    await this.db.clear(HISTORY_STATE_TABLE);
+
+    // Clean local cache
+    this.syncIndex = -1;
+    this.unparsedMemo.clear();
+    this.currentHistory.clear();
+  }
+
   // ------- Private rouutines --------
 
   private async syncHistory(): Promise<void> {
