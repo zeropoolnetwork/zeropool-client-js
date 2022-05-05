@@ -26,9 +26,9 @@ export async function init(wasmPath: string, workerPath: string, snarkParams: Sn
   await initWasm(wasmPath);
 
   const txParamsData = await fileCache.getOrCache(snarkParams.transferParamsUrl);
-  const transferParams = Params.fromBinary(new Uint8Array(txParamsData));
+  const transferParams = Params.fromBinary(new Uint8Array(txParamsData), true, true);
   const treeParamsData = await fileCache.getOrCache(snarkParams.treeParamsUrl);
-  const treeParams = Params.fromBinary(new Uint8Array(treeParamsData));
+  const treeParams = Params.fromBinary(new Uint8Array(treeParamsData), true, true);
   const transferVk = await (await fetch(snarkParams.transferVkUrl)).json();
   const treeVk = await (await fetch(snarkParams.treeVkUrl)).json();
 
