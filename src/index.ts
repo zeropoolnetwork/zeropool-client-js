@@ -1,5 +1,5 @@
 import { wrap } from 'comlink';
-import { Params, default as initWasm } from 'libzeropool-rs-wasm-web';
+import { Params, default as initWasm } from 'libzkbob-rs-wasm-web';
 
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';

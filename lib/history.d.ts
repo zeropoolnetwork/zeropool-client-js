@@ -1,5 +1,5 @@
 import { IDBPDatabase } from 'idb';
-import { Account, Note } from 'libzeropool-rs-wasm-web';
+import { Account, Note } from 'libzkbob-rs-wasm-web';
 export declare enum HistoryTransactionType {
     Deposit = 1,
     TransferIn = 2,

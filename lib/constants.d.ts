@@ -1,2 +1,2 @@
-import { Constants } from 'libzeropool-rs-wasm-web';
+import { Constants } from 'libzkbob-rs-wasm-web';
 export declare const CONSTANTS: Constants;
