@@ -1,4 +1,4 @@
-import { UserAccount } from 'libzeropool-rs-wasm-web';
+import { UserAccount } from 'libzkbob-rs-wasm-web';
 import { HistoryStorage } from './history';
 export declare class ZeroPoolState {
     denominator: bigint;

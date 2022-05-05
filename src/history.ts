@@ -1,7 +1,7 @@
 import { openDB, IDBPDatabase } from 'idb';
 import Web3 from 'web3';
 import Personal from 'web3-eth-personal';
-import { Account, Note, assembleAddress } from 'libzeropool-rs-wasm-web';
+import { Account, Note, assembleAddress } from 'libzkbob-rs-wasm-web';
 import { ShieldedTx, TxType } from './tx';
 import { truncateHexPrefix, addHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
 import { CONSTANTS } from './constants';

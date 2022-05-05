@@ -1,6 +1,6 @@
 import Web3 from 'web3';
 
-import { TransactionData, Proof, Params, SnarkProof, UserAccount, VK } from 'libzeropool-rs-wasm-web';
+import { TransactionData, Proof, Params, SnarkProof, UserAccount, VK } from 'libzkbob-rs-wasm-web';
 import { HexStringReader, HexStringWriter } from './utils';
 import { CONSTANTS } from './constants';
 

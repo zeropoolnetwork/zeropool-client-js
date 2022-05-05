@@ -1,5 +1,5 @@
 import { expose } from 'comlink';
-import { Proof, Params, default as init } from 'libzeropool-rs-wasm-web';
+import { Proof, Params, default as init } from 'libzkbob-rs-wasm-web';
 
 import { FileCache } from './file-cache';
 
@@ -17,20 +17,20 @@ const obj = {
     if (!txParamsData) {
       console.log(`Caching ${paramUrls.txParams}`)
       txParamsData = await cache.cache(paramUrls.txParams);
-      txParams = Params.fromBinary(new Uint8Array(txParamsData!), true, true);
+      txParams = Params.fromBinary(new Uint8Array(txParamsData!));
     } else {
       console.log(`File ${paramUrls.txParams} is present in cache, no need to fetch`);
-      txParams = Params.fromBinary(new Uint8Array(txParamsData!), false, false);
+      txParams = Params.fromBinaryExtended(new Uint8Array(txParamsData!), false, false);
     }
 
     let treeParamsData = await cache.get(paramUrls.treeParams);
     if (!treeParamsData) {
       console.log(`Caching ${paramUrls.treeParams}`)
       treeParamsData = await cache.cache(paramUrls.treeParams);
-      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!), true, true);
+      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!));
     } else {
       console.log(`File ${paramUrls.treeParams} is present in cache, no need to fetch`);
-      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!), false, false);
+      treeParams = Params.fromBinaryExtended(new Uint8Array(treeParamsData!), false, false);
     }
 
     console.info('Web worker init complete.');

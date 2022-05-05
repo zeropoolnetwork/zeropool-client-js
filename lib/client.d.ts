@@ -1,4 +1,4 @@
-import { Output } from 'libzeropool-rs-wasm-web';
+import { Output } from 'libzkbob-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
 import { NetworkBackend } from './networks/network';
 import { HistoryRecord } from './history';

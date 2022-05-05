@@ -1,5 +1,5 @@
 import Web3 from 'web3';
-import { TransactionData, Params, SnarkProof, UserAccount, VK } from 'libzeropool-rs-wasm-web';
+import { TransactionData, Params, SnarkProof, UserAccount, VK } from 'libzkbob-rs-wasm-web';
 export declare class InvalidNumberOfOutputs extends Error {
     numOutputs: number;
     constructor(numOutputs: number);
