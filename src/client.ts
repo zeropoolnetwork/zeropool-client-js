@@ -286,95 +286,6 @@ export class ZeropoolClient {
     await this.updateStatePromise;
   }
 
-  // // TODO: Verify the information sent by the relayer!
-  // private async updateStateWorker(tokenAddress: string): Promise<void> {
-  //   const OUTPLUSONE = CONSTANTS.OUT + 1;
-  //   const BATCH_SIZE = 100;
-
-  //   const zpState = this.zpStates[tokenAddress];
-  //   const token = this.tokens[tokenAddress];
-
-  //   const startIndex = Number(zpState.account.nextTreeIndex());
-  //   const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
-
-  //   if (nextIndex > startIndex) {
-  //     const startTime = Date.now();
-      
-  //     console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-
-  //     let curBatch = 0;
-  //     let isLastBatch = false;
-  //     //let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
-  //     do {
-  //       const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
-  //         .filter((val) => !!val);
-
-  //       // TODO: Error handling 
-
-  //       if (txs.length < BATCH_SIZE) {
-  //         isLastBatch = true;
-  //       }
-
-  //       for (let i = 0; i < txs.length; ++i) {
-  //         const tx = txs[i];
-
-  //         if (!tx || tx.length < 128) {
-  //           continue;
-  //         }
-
-
-  //         // Get the first leaf index in the tree
-  //         const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
-          
-  //         // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
-  //         // 1. Extract memo block
-  //         const memo = tx.slice(128); // Skip commitment and txHash
-
-  //         // 2. Get all hashes from the memo
-  //         const hashes = parseHashes(memo);
-
-  //         // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
-  //         let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
-  //         if (myMemo) {
-  //           // if memo block corresponds to the our account - save it to restore history
-  //           myMemo.txHash = '0x' + tx.substr(64, 64);
-  //           zpState.history.saveDecryptedMemo(myMemo);
-
-  //           // try to convert history on the fly
-  //           //let hist = convertToHistory(myMemo, txHash);
-  //           //historyPromises.push(hist);
-  //         }
-  //       }
-
-  //       ++curBatch;
-
-  //     } while (!isLastBatch);
-
-  //     const msElapsed = Date.now() - startTime;
-  //     const txCount = (nextIndex - startIndex) / 128;
-  //     const avgSpeed = msElapsed / txCount
-
-  //     console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
-
-  //     /*let historyRedords = await Promise.all(historyPromises);
-  //     for (let oneSet of historyRedords) {
-  //       for (let oneRec of oneSet) {
-  //         console.log(`History record @${oneRec.index} has been created`);
-  //         zpState.history.put(oneRec.index, oneRec.record);
-  //       }
-  //     }
-  //     console.log(`History has been synced`);*/
-
-
-  //     // Pass the obtained data to the history resolver
-  //     // Do not wait for finishing (it's not important for making transactions)
-  //     //this.updateHistory(decryptedMemos);
-
-  //   } else {
-  //     console.log(`Local state is up to date @${startIndex}...`);
-  //   }
-  // }
-
   private async updateStateNewWorker(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
@@ -390,9 +301,6 @@ export class ZeropoolClient {
       const startTime = Date.now();
       
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-
-      let curBatch = 0;
-      let isLastBatch = false;
 
       let batches: Promise<number>[] = [];
 
@@ -411,9 +319,7 @@ export class ZeropoolClient {
             // 1. Extract memo block
             const memo = tx.slice(128); // Skip commitment and txHash
 
-            // 2. Get all hashes from the memo
-            // const hashes = parseHashes(memo);
-
+            // 2. Get transaction commitment
             const commitment = tx.slice(0, 64)
             
             const indexedTx: IndexedTx = {
@@ -421,21 +327,9 @@ export class ZeropoolClient {
               memo: hexToBuf(memo),
               commitment: hexToBuf(commitment),
             }
+
             indexedTxs.push(indexedTx);
             txHashes[memo_idx] = '0x' + tx.substr(64, 64);
-
-            // TODO (AllFi): add history
-            // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
-            // let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
-            // if (myMemo) {
-            //   // if memo block corresponds to the our account - save it to restore history
-            //   myMemo.txHash = '0x' + tx.substr(64, 64);
-            //   zpState.history.saveDecryptedMemo(myMemo);
-
-            //   // try to convert history on the fly
-            //   //let hist = convertToHistory(myMemo, txHash);
-            //   //historyPromises.push(hist);
-            // }
           }
 
           const decryptedMemos = state.account.cacheTxs(indexedTxs);
@@ -444,8 +338,11 @@ export class ZeropoolClient {
             // save memos corresponding to the our account to restore history
             const myMemo = decryptedMemos[decryptedMemoIndex];
             myMemo.txHash = txHashes[myMemo.index];
-            console.log(myMemo);
             zpState.history.saveDecryptedMemo(myMemo);
+            
+            // try to convert history on the fly
+            // let hist = convertToHistory(myMemo, txHash);
+            // historyPromises.push(hist);
           }
 
           return txs.length;
@@ -464,19 +361,6 @@ export class ZeropoolClient {
       console.log(`Local state is up to date @${startIndex}`);
     }
   }
-
-  /**
-   * Attempt to extract and save usable account/notes from transaction data.
-   * Return decrypted account and notes to proceed history restoring
-   * @param raw hex-encoded transaction data
-   */
-  // private cacheShieldedTx(tokenAddress: string, ciphertext: string, hashes: string[], index: number): DecryptedMemo | undefined {
-  //   const state = this.zpStates[tokenAddress];
-  //   const data = hexToBuf(ciphertext);
-  //   const decrypredMemo = state.account.addShieldedTx(data, hashes, BigInt(index));
-  //   console.log(decrypredMemo);
-  //   return decrypredMemo
-  // }
 
   public free(): void {
     for (let state of Object.values(this.zpStates)) {
