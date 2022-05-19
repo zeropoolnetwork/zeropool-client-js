@@ -390,7 +390,6 @@ export class ZeropoolClient {
           }
 
           const decryptedMemos = state.account.cacheTxs(indexedTxs);
-          console.log(decryptedMemos);
           for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
             // save memos corresponding to the our account to restore history
             const myMemo = decryptedMemos[decryptedMemoIndex];
