@@ -43,7 +43,7 @@ export class ZeroPoolState {
   }
 
   public async clean(): Promise<void> {
-    await this.account.cleanState();
+    //await this.account.cleanState();
     await this.history.cleanHistory();
   }
 
