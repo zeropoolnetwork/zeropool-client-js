@@ -1,4 +1,4 @@
-import { assembleAddress, Account, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
+import { assembleAddress, Account, Note, validateAddress, Output, Proof } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
