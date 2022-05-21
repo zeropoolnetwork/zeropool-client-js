@@ -1,12 +1,12 @@
-import { assembleAddress, Account, Note, validateAddress, Output, Proof } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
 import { ZeroPoolState } from './state';
-import { parseHashes, ShieldedTx, TxType } from './tx';
+import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage, DecryptedMemo } from './history'
+import { HistoryRecord } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 export interface RelayerInfo {
