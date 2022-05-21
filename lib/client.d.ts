@@ -41,10 +41,5 @@ export declare class ZeropoolClient {
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     updateState(tokenAddress: string): Promise<void>;
     private updateStateNewWorker;
-    /**
-     * Attempt to extract and save usable account/notes from transaction data.
-     * Return decrypted account and notes to proceed history restoring
-     * @param raw hex-encoded transaction data
-     */
     free(): void;
 }
