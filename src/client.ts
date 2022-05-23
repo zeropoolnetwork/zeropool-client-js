@@ -1,4 +1,4 @@
-import { Output, Proof } from 'libzeropool-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -419,6 +419,7 @@ export class ZeropoolClient {
           }
 
           const decryptedMemos = state.account.cacheTxs(indexedTxs);
+          this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
           for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
             // save memos corresponding to the our account to restore history
             const myMemo = decryptedMemos[decryptedMemoIndex];
@@ -444,6 +445,26 @@ export class ZeropoolClient {
 
     } else {
       console.log(`Local state is up to date @${startIndex}`);
+    }
+  }
+
+  public async logStateSync(startIndex: number, endIndex: number, decryptedMemos: DecryptedMemo[]) {
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
+    for (let decryptedMemo of decryptedMemos) {
+      if (decryptedMemo.index > startIndex) {
+        console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${decryptedMemo.index - OUTPLUSONE})`);
+      }
+      startIndex = decryptedMemo.index + OUTPLUSONE;
+
+      if (decryptedMemo.acc) {
+        console.info(`📝 Adding account, notes, and hashes to state (at index ${decryptedMemo.index})`);
+      } else {
+        console.info(`📝 Adding notes and hashes to state (at index ${decryptedMemo.index})`);
+      }
+    }
+
+    if (startIndex < endIndex) {
+      console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${endIndex - OUTPLUSONE})`);
     }
   }
 
