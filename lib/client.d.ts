@@ -28,7 +28,8 @@ export declare class ZeropoolClient {
     private updateStatePromise;
     static create(config: ClientConfig): Promise<ZeropoolClient>;
     generateAddress(tokenAddress: string): string;
-    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string, isBridge?: boolean): Promise<string>;
+    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<string>;
+    depositPermittable(tokenAddress: string, amountWei: string, signTypedData: (deadline: bigint, value: bigint) => Promise<string>, fromAddress?: string | null, fee?: string): Promise<string>;
     transfer(tokenAddress: string, outsWei: Output[], fee?: string): Promise<string>;
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<string>;
     waitJobCompleted(tokenAddress: string, jobId: string): Promise<string>;
