@@ -1,4 +1,4 @@
-import { Output } from 'libzkbob-rs-wasm-web';
+import { Output, DecryptedMemo } from 'libzkbob-rs-wasm-web';
 import { SnarkParams, Tokens } from './config';
 import { NetworkBackend } from './networks/network';
 import { HistoryRecord } from './history';
@@ -41,5 +41,6 @@ export declare class ZeropoolClient {
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     updateState(tokenAddress: string): Promise<void>;
     private updateStateNewWorker;
+    logStateSync(startIndex: number, endIndex: number, decryptedMemos: DecryptedMemo[]): Promise<void>;
     free(): void;
 }
