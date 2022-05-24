@@ -197,7 +197,7 @@ export class ZeropoolClient {
       }
 
       // permittable deposit signature should be calculated for the typed data
-      const value = BigInt(amountGwei) + BigInt(fee);
+      const value = BigInt(amountWei) + BigInt(fee);
       let signature = truncateHexPrefix(await signTypedData(deadline, value));
 
       if (this.config.network.isSignatureCompact()) {
