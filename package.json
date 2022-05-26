@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -19,7 +19,7 @@
     "comlink": "^4.3.1",
     "hdwallet-babyjub": "^0.0.1",
     "idb": "^7.0.0",
-    "libzkbob-rs-wasm-web": "^0.3.10",
+    "libzkbob-rs-wasm-web": "^0.3.12",
     "regenerator-runtime": "^0.13.9",
     "web3": "^1.7.0",
     "web3-utils": "^1.7.0",

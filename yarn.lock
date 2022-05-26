@@ -2657,10 +2657,10 @@ levn@^0.3.0, levn@~0.3.0:
     prelude-ls "~1.1.2"
     type-check "~0.3.2"
 
-libzkbob-rs-wasm-web@^0.3.10:
-  version "0.3.10"
-  resolved "https://registry.yarnpkg.com/libzkbob-rs-wasm-web/-/libzkbob-rs-wasm-web-0.3.10.tgz#7170aec2547ef379bac3957c0966dcc66e7332ec"
-  integrity sha512-VyDnTm6Kay9bER4hK4TTHNB/l8T7uuR4Z8aPjq/nZQgW9obLS/8BQRp9slfoL0U6Nrtmgx+1hqE6reO2sCxAzg==
+libzkbob-rs-wasm-web@^0.3.12:
+  version "0.3.12"
+  resolved "https://registry.yarnpkg.com/libzkbob-rs-wasm-web/-/libzkbob-rs-wasm-web-0.3.12.tgz#fb279252cff28f219e243472849c6c907b0354d9"
+  integrity sha512-Wp6v/A1os4swJyRT53TTbXUAx2IU5pxbqC0dGrHoncxyEHNTFlAJy8DhgKQu4iLcACJ+ijjP3AZPEJytEkMkaw==
 
 loader-runner@^4.2.0:
   version "4.3.0"
