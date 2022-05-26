@@ -1,5 +1,6 @@
 import { NetworkType } from './network-type';
 export declare function deriveSpendingKey(mnemonic: string, networkType: NetworkType): Uint8Array;
+export declare function verifyShieldedAddress(address: string): boolean;
 export declare function bufToHex(buffer: Uint8Array): string;
 export declare function base64ToHex(data: string): string;
 export declare function bigintToArrayLe(num: bigint): Uint8Array;

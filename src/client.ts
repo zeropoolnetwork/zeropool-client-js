@@ -110,7 +110,6 @@ export class ZeropoolClient {
     sign: (data: string) => Promise<string>,
     fromAddress: string | null = null,
     fee: string = '0',
-    isBridge: boolean = false
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -121,9 +120,8 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
-    const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    let txData = await state.account.createDeposit({ amount: amountGwei, fee });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -135,10 +133,11 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    const nullifier = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    // regular deposit through approve allowance: sign transaction nullifier
+    let dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
 
     // TODO: Sign fromAddress as well?
-    const signature = truncateHexPrefix(await sign(nullifier));
+    const signature = truncateHexPrefix(await sign(dataToSign));
     let fullSignature = signature;
     if (fromAddress) {
       const addr = truncateHexPrefix(fromAddress);
@@ -149,8 +148,57 @@ export class ZeropoolClient {
       fullSignature = toCompactSignature(fullSignature);
     }
 
-    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
+    return await sendTransaction(token.relayerUrl, txProof, txData.memo, TxType.Deposit, fullSignature);
   }
+
+  public async depositPermittable(
+    tokenAddress: string,
+    amountWei: string,
+    signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
+    fromAddress: string | null = null,
+    fee: string = '0',
+  ): Promise<string> {
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    if (BigInt(amountWei) < state.denominator) {
+      throw new Error('Value is too small');
+    }
+
+    await this.updateState(tokenAddress);
+
+    const amountGwei = (BigInt(amountWei) / state.denominator).toString();
+    let txData;
+    if (fromAddress) {
+      const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
+      const holder = hexToBuf(fromAddress);
+      txData = await state.account.createDepositPermittable({ amount: amountGwei, fee, deadline: String(deadline), holder});
+
+      const startProofDate = Date.now();
+      const txProof = await this.worker.proveTx(txData.public, txData.secret);
+      const proofTime = (Date.now() - startProofDate) / 1000;
+      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
+      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      if (!txValid) {
+        throw new Error('invalid tx proof');
+      }
+
+      // permittable deposit signature should be calculated for the typed data
+      const value = BigInt(amountWei) + BigInt(fee);
+      let signature = truncateHexPrefix(await signTypedData(deadline, value));
+
+      if (this.config.network.isSignatureCompact()) {
+        signature = toCompactSignature(signature);
+      }
+
+      return await sendTransaction(token.relayerUrl, txProof, txData.memo, TxType.BridgeDeposit, signature);
+
+    } else {
+      throw new Error('You must provide fromAddress for bridge deposit transaction ');
+    }
+  }
+
 
   public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
@@ -272,6 +320,10 @@ export class ZeropoolClient {
     await this.updateState(tokenAddress);
 
     return await this.zpStates[tokenAddress].history.getAllHistory();
+  }
+
+  public async cleanState(tokenAddress: string): Promise<void> {
+    await this.zpStates[tokenAddress].clean();
   }
 
   public async updateState(tokenAddress: string) {

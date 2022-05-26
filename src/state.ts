@@ -42,6 +42,11 @@ export class ZeroPoolState {
     return this.account.getWholeState();
   }
 
+  public async clean(): Promise<void> {
+    //await this.account.cleanState();
+    await this.history.cleanHistory();
+  }
+
   public free(): void {
     this.account.free();
   }

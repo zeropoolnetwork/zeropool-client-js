@@ -8,5 +8,6 @@ export declare class ZeroPoolState {
     getTotalBalance(): string;
     getBalances(): [string, string, string];
     rawState(): any;
+    clean(): Promise<void>;
     free(): void;
 }

@@ -19,6 +19,7 @@
     "comlink": "^4.3.1",
     "hdwallet-babyjub": "^0.0.1",
     "idb": "^7.0.0",
+    "libzkbob-rs-wasm-web": "patch:../libzkbob-rs/libzkbob-rs-wasm/web/",
     "libzkbob-rs-wasm-web": "^0.3.10",
     "regenerator-runtime": "^0.13.9",
     "web3": "^1.7.0",
