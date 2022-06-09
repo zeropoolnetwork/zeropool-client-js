@@ -1,7 +1,7 @@
 import { openDB, IDBPDatabase } from 'idb';
 import Web3 from 'web3';
 import Personal from 'web3-eth-personal';
-import { Account, Note } from 'libzeropool-rs-wasm-web';
+import { Account, Note, assembleAddress } from 'libzeropool-rs-wasm-web';
 import { ShieldedTx, TxType } from './tx';
 import { truncateHexPrefix, addHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
 import { CONSTANTS } from './constants';
@@ -355,14 +355,9 @@ export class HistoryStorage {
                         }
                       } else {
                         // 2. somebody initiated it => incoming tx(s)
-                        for (let {note, index} of memo.inNotes) {
-<<<<<<< HEAD
-                          const destAddr = zp.assembleAddress(note.d, note.p_d);
-                          let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
-=======
+                        for (let { note, index } of memo.inNotes) {
                           const destAddr = assembleAddress(note.d, note.p_d);
                           let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash, pending);
->>>>>>> f5fa168 (Fetching optimistic state)
                           allRecords.push(HistoryRecordIdx.create(rec, index));
                         }
                       }
@@ -388,7 +383,10 @@ export class HistoryStorage {
           throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
       }
 
-      throw new Error(`Unable to get transaction details (${txHash})`);
+      //throw new Error(`Unable to get transaction details (${txHash})`);
+      // TODO: make it more precisely
+      return [];
+
     }
 
     throw new Error(`Cannot find txHash for memo at index ${memo.index}`);
