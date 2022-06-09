@@ -34,6 +34,7 @@ export declare class ZeropoolClient {
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<string>;
     waitJobCompleted(tokenAddress: string, jobId: string): Promise<string>;
     getTotalBalance(tokenAddress: string): Promise<string>;
+    getOptimisticTotalBalance(tokenAddress: string): Promise<string>;
     /**
      * @returns [total, account, note]
      */
@@ -42,7 +43,8 @@ export declare class ZeropoolClient {
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     cleanState(tokenAddress: string): Promise<void>;
     updateState(tokenAddress: string): Promise<void>;
-    private updateStateNewWorker;
+    private updateStateWorker;
+    private updateStateOptimisticWorker;
     logStateSync(startIndex: number, endIndex: number, decryptedMemos: DecryptedMemo[]): Promise<void>;
     free(): void;
 }
