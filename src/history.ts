@@ -32,6 +32,7 @@ export class HistoryRecord {
     public amount: bigint,
     public fee: bigint,
     public txHash: string,
+    public pending: boolean,
   ) {}
 
   public toJson(): string {
@@ -69,6 +70,7 @@ export class TxHashIdx {
 
 const TX_TABLE = 'TX_STORE';
 const DECRYPTED_MEMO_TABLE = 'DECRYPTED_MEMO';
+const DECRYPTED_PENDING_MEMO_TABLE = 'DECRYPTED_PENDING_MEMO';
 const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 
 // History storage holds the parsed history records corresponding to the current account
@@ -78,6 +80,7 @@ export class HistoryStorage {
   private db: IDBPDatabase;
   private syncIndex = -1;
   private unparsedMemo = new Map<number, DecryptedMemo>();  // local decrypted memos cache
+  private unparsedPendingMemo = new Map<number, DecryptedMemo>();  // local decrypted pending memos cache
   private currentHistory = new Map<number, HistoryRecord>();  // local history cache
   private syncHistoryPromise: Promise<void> | undefined;
   private web3;
@@ -92,6 +95,7 @@ export class HistoryStorage {
       upgrade(db) {
         db.createObjectStore(TX_TABLE);   // table holds parsed history transactions
         db.createObjectStore(DECRYPTED_MEMO_TABLE);  // holds memo blocks decrypted in the updateState process
+        db.createObjectStore(DECRYPTED_PENDING_MEMO_TABLE);  // holds memo blocks decrypted in the updateState process, but not mined yet
         db.createObjectStore(HISTORY_STATE_TABLE);   
       }
     });
@@ -110,8 +114,18 @@ export class HistoryStorage {
 
     // getting unprocessed memo array
     let allUnprocessedMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_MEMO_TABLE, IDBKeyRange.lowerBound(this.syncIndex + 1));
+    let allUnprocessedPendingMemos: DecryptedMemo[] = await this.db.getAll(DECRYPTED_PENDING_MEMO_TABLE, IDBKeyRange.lowerBound(this.syncIndex + 1));
+    let lastMinedMemoIndex = -1;
     for (let oneMemo of allUnprocessedMemos) {
       this.unparsedMemo.set(oneMemo.index, oneMemo);
+      if (oneMemo.index > lastMinedMemoIndex) {
+        lastMinedMemoIndex = oneMemo.index; // get the max mined memo index
+      }
+    }
+    for (let oneMemo of allUnprocessedPendingMemos) {
+      if (oneMemo.index > lastMinedMemoIndex) { // skip outdated unparsed memos
+        this.unparsedPendingMemo.set(oneMemo.index, oneMemo);
+      }
     }
 
     
@@ -122,7 +136,7 @@ export class HistoryStorage {
       cursor = await cursor.continue();
     }
 
-    console.log(`HistoryStorage: preload ${this.currentHistory.size} history records and ${this.unparsedMemo.size} unparsed memos (from index ${this.syncIndex + 1})`);
+    console.log(`HistoryStorage: preload ${this.currentHistory.size} history records, ${this.unparsedMemo.size} + ${this.unparsedPendingMemo.size}(pending) unparsed memos(from index ${this.syncIndex + 1})`);
   }
 
   public async getAllHistory(): Promise<HistoryRecord[]> {
@@ -138,24 +152,44 @@ export class HistoryStorage {
     return recordsArray.sort((rec1, rec2) => 0 - (rec1.timestamp > rec2.timestamp ? -1 : 1));
   }
 
-  public async saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo> {
+  public async saveDecryptedMemo(memo: DecryptedMemo, pending: boolean): Promise<DecryptedMemo> {
     const mask = (-1) << CONSTANTS.OUTLOG;
     const memoIndex = memo.index & mask;
 
-    if(memo.index > this.syncIndex) {
-      this.unparsedMemo.set(memoIndex, memo);
+    if (pending) {
+      this.unparsedPendingMemo.set(memoIndex, memo);
+      await this.db.put(DECRYPTED_PENDING_MEMO_TABLE, memo, memoIndex);
+    } else {
+      if (memo.index > this.syncIndex) {
+        this.unparsedMemo.set(memoIndex, memo);
+      }
+      await this.db.put(DECRYPTED_MEMO_TABLE, memo, memoIndex);
     }
 
-    await this.db.put(DECRYPTED_MEMO_TABLE, memo, memoIndex);
     return memo;
   }
 
-  public async getDecryptedMemo(index: number): Promise<DecryptedMemo | null> {
+
+
+  public async getDecryptedMemo(index: number, allowPending: boolean): Promise<DecryptedMemo | null> {
     const mask = (-1) << CONSTANTS.OUTLOG;
     const memoIndex = index & mask;
 
     let memo = await this.db.get(DECRYPTED_MEMO_TABLE, memoIndex);
+    if (memo === null && allowPending) {
+      memo = await this.db.get(DECRYPTED_PENDING_MEMO_TABLE, memoIndex);
+    }
     return memo;
+  }
+
+  public async setLastMinedIndex(index: number): Promise<void> {
+        for (const oneKey of this.unparsedPendingMemo.keys()) {
+          if (oneKey <= index) {
+            this.unparsedPendingMemo.delete(oneKey);
+          }
+        }
+
+        await this.db.delete(DECRYPTED_PENDING_MEMO_TABLE, IDBKeyRange.upperBound(index));
   }
 
   public async cleanHistory(): Promise<void> {
@@ -167,11 +201,13 @@ export class HistoryStorage {
     // Remove all records from the database
     await this.db.clear(TX_TABLE);
     await this.db.clear(DECRYPTED_MEMO_TABLE);
+    await this.db.clear(DECRYPTED_PENDING_MEMO_TABLE);
     await this.db.clear(HISTORY_STATE_TABLE);
 
     // Clean local cache
     this.syncIndex = -1;
     this.unparsedMemo.clear();
+    this.unparsedPendingMemo.clear();
     this.currentHistory.clear();
   }
 
@@ -180,19 +216,37 @@ export class HistoryStorage {
   private async syncHistory(): Promise<void> {
     const startTime = Date.now();
 
-    if (this.unparsedMemo.size > 0) {
-      console.log(`Starting memo synchronizing from the index ${this.syncIndex + 1} (${this.unparsedMemo.size} unprocessed memos)`);
+    if (this.unparsedMemo.size > 0 || this.unparsedPendingMemo.size > 0) {
+      console.log(`Starting memo synchronizing from the index ${this.syncIndex + 1} (${this.unparsedMemo.size} + ${this.unparsedPendingMemo.size}(pending)  unprocessed memos)`);
 
       let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
+      
+      // process mined memos
       let processedIndexes: number[] = [];
       for (let oneMemo of this.unparsedMemo.values()) {
-        let hist = this.convertToHistory(oneMemo);
+        let hist = this.convertToHistory(oneMemo, false);
         historyPromises.push(hist);
 
         processedIndexes.push(oneMemo.index);
       }
 
+      // process pending memos
+      let processedPendingIndexes: number[] = [];
+      for (let oneMemo of this.unparsedPendingMemo.values()) {
+        let hist = this.convertToHistory(oneMemo, true);
+        historyPromises.push(hist);
+
+        processedPendingIndexes.push(oneMemo.index);
+      }
+
       let historyRedords = await Promise.all(historyPromises);
+
+      // delete all pending history records [we'll refresh them immediately]
+      for (const [index, record] of this.currentHistory.entries()) {
+        if (record.pending) {
+          this.currentHistory.delete(index);
+        }
+      }
 
       let newSyncIndex = this.syncIndex;
       for (let oneSet of historyRedords) {
@@ -200,8 +254,12 @@ export class HistoryStorage {
           console.log(`History record @${oneRec.index} has been created`);
 
           this.currentHistory.set(oneRec.index, oneRec.record);
-          this.put(oneRec.index, oneRec.record);
-          newSyncIndex = oneRec.index;
+
+          if (!oneRec.record.pending) {
+            // save history record only for mined transactions
+            this.put(oneRec.index, oneRec.record);
+            newSyncIndex = oneRec.index;
+          }
         }
       }
 
@@ -229,7 +287,7 @@ export class HistoryStorage {
     return data;
   }
 
-  private async convertToHistory(memo: DecryptedMemo): Promise<HistoryRecordIdx[]> {
+  private async convertToHistory(memo: DecryptedMemo, pending: boolean): Promise<HistoryRecordIdx[]> {
     let txHash = memo.txHash;
     if (txHash) {
       const txData = await this.web3.eth.getTransaction(txHash);
@@ -260,7 +318,7 @@ export class HistoryStorage {
                         const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
                         const depositHolderAddr = await this.web3.eth.accounts.recover(nullifier, fullSig);
 
-                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash);
+                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash, pending);
                         allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                         
                       } else {
@@ -273,7 +331,7 @@ export class HistoryStorage {
                       // source address in the memo block (20 bytes, starts from 16 bytes offset)
                       const depositHolderAddr = '0x' + tx.memo.substr(32, 40);  // TODO: Check it!
 
-                      let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash);
+                      let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash, pending);
                       allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
                     } else if (tx.txType == TxType.Transfer) {
@@ -286,10 +344,10 @@ export class HistoryStorage {
                           let rec: HistoryRecord;
                           if (memo.inNotes.find((obj) => { return obj.index === index})) {
                             // a special case: loopback transfer
-                            rec = new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, destAddr, destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+                            rec = new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, destAddr, destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash, pending);
                           } else {
                             // regular transfer to another person
-                            rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash);
+                            rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash, pending);
                           }
                           
                           allRecords.push(HistoryRecordIdx.create(rec, index));
@@ -298,7 +356,7 @@ export class HistoryStorage {
                         // 2. somebody initiated it => incoming tx(s)
                         for (let {note, index} of memo.inNotes) {
                           const destAddr = assembleAddress(note.d, note.p_d);
-                          let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
+                          let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash, pending);
                           allRecords.push(HistoryRecordIdx.create(rec, index));
                         }
                       }
@@ -306,7 +364,7 @@ export class HistoryStorage {
                       // withdrawal transaction (destination address in the memoblock)
                       const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
 
-                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, (-tx.tokenAmount - feeAmount), feeAmount, txHash);
+                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, (-tx.tokenAmount - feeAmount), feeAmount, txHash, pending);
                       allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                     }
 
