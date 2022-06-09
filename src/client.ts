@@ -312,7 +312,9 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getTotalBalance();
   }
 
-  public async getPendingTotalBalance(tokenAddress: string): Promise<string> {
+  public async getOptimisticTotalBalance(tokenAddress: string): Promise<string> {
+    const state = this.zpStates[tokenAddress];
+
     const confirmedBalance = await this.getTotalBalance(tokenAddress);
     const historyRecords = await this.getAllHistory(tokenAddress);
 
@@ -338,7 +340,7 @@ export class ZeropoolClient {
       }
     }
 
-    return (BigInt(confirmedBalance) + pendingDelta).toString();
+    return (BigInt(confirmedBalance) + (pendingDelta * state.denominator)).toString();
   }
 
   /**
@@ -366,18 +368,6 @@ export class ZeropoolClient {
 
   public async updateState(tokenAddress: string) {
     if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateWorker(tokenAddress).finally(() => {
-        this.updateStatePromise = undefined;
-      });
-    } else {
-      console.info(`The state currently updating, waiting for finish...`);
-    }
-
-    await this.updateStatePromise;
-  }
-
-  public async updateStateOptimistic(tokenAddress: string) {
-    if (this.updateStatePromise == undefined) {
       this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
         this.updateStatePromise = undefined;
       });
@@ -388,6 +378,19 @@ export class ZeropoolClient {
     await this.updateStatePromise;
   }
 
+  /*public async updateStateOptimistic(tokenAddress: string) {
+    if (this.updateStatePromise == undefined) {
+      this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
+        this.updateStatePromise = undefined;
+      });
+    } else {
+      console.info(`The state currently updating, waiting for finish...`);
+    }
+
+    await this.updateStatePromise;
+  }*/
+
+  // Deprecated method. Please use updateStateOptimisticWorker instead
   private async updateStateWorker(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
@@ -398,6 +401,8 @@ export class ZeropoolClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+
+
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
@@ -478,8 +483,13 @@ export class ZeropoolClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+    // TODO: it's just a workaroud while relayer doesn't return optimistic index!
+    const optimisticIndex = nextIndex + 1;
 
-    if (nextIndex > startIndex) {
+    // TODO: move to another place and change logic
+    zpState.history.setLastMinedIndex(nextIndex);
+
+    if (optimisticIndex > startIndex) {
       const startTime = Date.now();
       
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
@@ -503,10 +513,10 @@ export class ZeropoolClient {
             
             // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
             // 1. Extract memo block
-            const memo = tx.slice(129); // Skip txHash and commitment
+            const memo = tx.slice(129); // Skip mined flag, txHash and commitment
 
             // 2. Get transaction commitment
-            const commitment = tx.slice(1, 64)
+            const commitment = tx.substr(65, 64)
             
             const indexedTx: IndexedTx = {
               index: memo_idx,
@@ -515,15 +525,15 @@ export class ZeropoolClient {
             }
 
             // 3. Get txHash
-            const txHash = tx.substr(65, 64);
+            const txHash = tx.substr(1, 64);
 
             // 4. Get mined flag
-            if (tx.slice(0, 1) === '1') {
+            if (tx.substr(0, 1) === '1') {
               indexedTxs.push(indexedTx);
-              txHashes[memo_idx] = '0x' + tx.substr(65, 64);
+              txHashes[memo_idx] = '0x' + txHash;
             } else {
               indexedTxsPending.push(indexedTx);
-              txHashesPending[memo_idx] = '0x' + tx.substr(65, 64);
+              txHashesPending[memo_idx] = '0x' + txHash;
             }
           }
 
@@ -536,7 +546,7 @@ export class ZeropoolClient {
             zpState.history.saveDecryptedMemo(myMemo, false);
           }
 
-          const decryptedPendingMemos = state.account.decodeTxs(indexedTxs);
+          const decryptedPendingMemos = state.account.decodeTxs(indexedTxsPending);
           for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
             // save memos corresponding to the our account to restore history
             const myMemo = decryptedPendingMemos[idx];

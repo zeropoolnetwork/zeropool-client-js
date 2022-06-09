@@ -382,7 +382,10 @@ export class HistoryStorage {
           throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
       }
 
-      throw new Error(`Unable to get transaction details (${txHash})`);
+      //throw new Error(`Unable to get transaction details (${txHash})`);
+      // TODO: make it more precisely
+      return [];
+
     }
 
     throw new Error(`Cannot find txHash for memo at index ${memo.index}`);
