@@ -1,4 +1,4 @@
-import { assembleAddress, Account, Note, validateAddress, Output, Proof } from 'libzeropool-rs-wasm-web';
+import { Note, Output, Proof } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -7,6 +7,7 @@ import { parseHashes, TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
 import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage, DecryptedMemo } from './history'
+import { zp } from './zp';
 
 export interface RelayerInfo {
   root: string;
@@ -129,7 +130,7 @@ export class ZeropoolClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -159,7 +160,7 @@ export class ZeropoolClient {
 
     const txType = TxType.Transfer;
     const outGwei = outsWei.map(({ to, amount }) => {
-      if (!validateAddress(to)) {
+      if (!zp.validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
@@ -181,7 +182,7 @@ export class ZeropoolClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -210,7 +211,7 @@ export class ZeropoolClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
     
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -474,7 +475,7 @@ export class ZeropoolClient {
       let out_notes: { note: Note, index: number }[] = [];
       for (let i = 0; i < pair.notes.length; ++i) {
         const note = pair.notes[i];
-        const address = assembleAddress(note.d, note.p_d);
+        const address = zp.assembleAddress(note.d, note.p_d);
         if (state.account.isOwnAddress(address)) {
           out_notes.push({ note, index: index + 1 + i });
           in_notes.push({ note, index: index + 1 + i });
@@ -499,7 +500,7 @@ export class ZeropoolClient {
 
         // Get only our notes and update the indexes to the absolute values
         const notes = onlyNotes.reduce<{ note: Note, index: number }[]>((acc, idxNote) => {
-          const address = assembleAddress(idxNote.note.d, idxNote.note.p_d);
+          const address = zp.assembleAddress(idxNote.note.d, idxNote.note.p_d);
           if (state.account.isOwnAddress(address)) {
             acc.push({ note: idxNote.note, index: index + 1 + idxNote.index });
           }
