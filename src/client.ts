@@ -84,7 +84,7 @@ export class ZeropoolClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
-  private updateStatePromise: Promise<void> | undefined;
+  private updateStatePromise: Promise<boolean> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZeropoolClient> {
     const client = new ZeropoolClient();
@@ -362,11 +362,39 @@ export class ZeropoolClient {
     return await this.zpStates[tokenAddress].history.getAllHistory();
   }
 
+  public async isReadyToTransact(tokenAddress: string): Promise<boolean> {
+    return await this.updateState(tokenAddress);
+  }
+
+  public async waitReadyToTransact(tokenAddress: string): Promise<boolean> {
+    const token = this.tokens[tokenAddress];
+
+    const INTERVAL_MS = 1000;
+    const MAX_ATTEMPTS = 300;
+    let attepts = 0;
+    while (true) {
+      let ready = await this.updateState(tokenAddress);
+
+      if (ready) {
+        break;
+      }
+
+      attepts++;
+      if (attepts > MAX_ATTEMPTS) {
+        return false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    return true;
+  }
+
   public async cleanState(tokenAddress: string): Promise<void> {
     await this.zpStates[tokenAddress].clean();
   }
 
-  public async updateState(tokenAddress: string) {
+  public async updateState(tokenAddress: string): Promise<boolean> {
     if (this.updateStatePromise == undefined) {
       this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
         this.updateStatePromise = undefined;
@@ -375,23 +403,11 @@ export class ZeropoolClient {
       console.info(`The state currently updating, waiting for finish...`);
     }
 
-    await this.updateStatePromise;
+    return this.updateStatePromise;
   }
 
-  /*public async updateStateOptimistic(tokenAddress: string) {
-    if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
-        this.updateStatePromise = undefined;
-      });
-    } else {
-      console.info(`The state currently updating, waiting for finish...`);
-    }
-
-    await this.updateStatePromise;
-  }*/
-
   // Deprecated method. Please use updateStateOptimisticWorker instead
-  private async updateStateWorker(tokenAddress: string): Promise<void> {
+  private async updateStateWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
 
@@ -467,13 +483,17 @@ export class ZeropoolClient {
     } else {
       console.log(`Local state is up to date @${startIndex}`);
     }
+
+    // Unoptimistic method: it's assumes we always ready to transact
+    // (but transaction could fail due to doublespend reason)
+    return true;
   }
 
   // ---===< TODO >===---
   // The optimistic state currently processed only in the client library
   // Wasm package holds only the mined transactions
   // Currently it's juat a workaround
-  private async updateStateOptimisticWorker(tokenAddress: string): Promise<void> {
+  private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
 
@@ -495,6 +515,8 @@ export class ZeropoolClient {
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
       let batches: Promise<number>[] = [];
+
+      let readyToTransact = true;
 
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
@@ -552,6 +574,12 @@ export class ZeropoolClient {
             const myMemo = decryptedPendingMemos[idx];
             myMemo.txHash = txHashesPending[myMemo.index];
             zpState.history.saveDecryptedMemo(myMemo, true);
+
+            if (myMemo.acc != undefined) {
+              // There is a pending transaction initiated by ourselfs
+              // So we cannot create new transactions in that case
+              readyToTransact = false;
+            }
           }
 
           return txs.length;
@@ -566,8 +594,11 @@ export class ZeropoolClient {
 
       console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
+      return readyToTransact;
     } else {
       console.log(`Local state is up to date @${startIndex}`);
+
+      return true;
     }
   }
 
