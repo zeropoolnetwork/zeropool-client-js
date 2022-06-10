@@ -38,7 +38,7 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
         worker = wrap(new Worker(new URL('./workerSt.js', import.meta.url), { type: 'module' }));
     }
 
-    await worker.initWasm(wasmPath, {
+    await worker.initWasm({
         txParams: snarkParams.transferParamsUrl,
         treeParams: snarkParams.treeParamsUrl,
     });
