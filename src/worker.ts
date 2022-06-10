@@ -1,5 +1,5 @@
 import { expose } from 'comlink';
-import { Proof, Params, default as init } from 'libzkbob-rs-wasm-web';
+import { Proof, Params, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
 
 import { FileCache } from './file-cache';
 
@@ -10,6 +10,7 @@ const obj = {
   async initWasm(url: string, paramUrls: { txParams: string; treeParams: string }) {
     console.info('Initializing web worker...');
     await init(url);
+    await initThreadPool(navigator.hardwareConcurrency);
 
     const cache = await FileCache.init();
 
