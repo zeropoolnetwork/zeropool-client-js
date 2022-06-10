@@ -19,6 +19,7 @@ export class ZeroPoolLibState {
     public worker: any;
     public snarkParams: SnarkParams;
 }
+
 export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
     const isMt = await threads();
     let workerPath = workerStPath;
@@ -34,6 +35,7 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
 
     const fileCache = await FileCache.init();
 
+    const _worker = await import(workerPath.href);
     const worker: any = wrap(new Worker(workerPath));
     await worker.initWasm(wasmPath, {
         txParams: snarkParams.transferParamsUrl,
