@@ -12,4 +12,4 @@ export interface Paths {
     workerStPath: string;
     workerMtPath: string;
 }
-export declare function init(wasmPath: string, workerPath: string, snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState>;
+export declare function init(paths: Paths, snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState>;
