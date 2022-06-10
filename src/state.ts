@@ -2,7 +2,8 @@ import { hash } from 'tweetnacl';
 
 import { UserAccount, UserState } from 'libzeropool-rs-wasm-web';
 import { bufToHex } from './utils';
-import { HistoryStorage } from './history'
+import { HistoryStorage } from './history';
+import { zp } from './zp';
 
 export class ZeroPoolState {
   public denominator: bigint;
@@ -13,11 +14,11 @@ export class ZeroPoolState {
     const zpState = new ZeroPoolState();
     zpState.denominator = denominator;
     const userId = bufToHex(hash(sk));
-    const state = await UserState.init(`zp.${networkName}.${userId}`);
+    const state = await zp.UserState.init(`zp.${networkName}.${userId}`);
     zpState.history = await HistoryStorage.init(`zp.${networkName}.${userId}`, rpcUrl);
 
     try {
-      const acc = new UserAccount(sk, state);
+      const acc = new zp.UserAccount(sk, state);
       zpState.account = acc;
     } catch (e) {
       console.error(e);
