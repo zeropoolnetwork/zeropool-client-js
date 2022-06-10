@@ -6,10 +6,4 @@ export declare class ZeroPoolLibState {
     worker: any;
     snarkParams: SnarkParams;
 }
-export interface Paths {
-    wasmMtPath: string;
-    wasmStPath: string;
-    workerStPath: string;
-    workerMtPath: string;
-}
-export declare function init(paths: Paths, snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState>;
+export declare function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState>;

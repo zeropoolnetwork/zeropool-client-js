@@ -3,13 +3,15 @@ import { Proof, Params, default as init, initThreadPool } from 'libzeropool-rs-w
 
 import { FileCache } from './file-cache';
 
-let txParams: Params;
-let treeParams: Params;
+const wasmPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
+
+let txParams;
+let treeParams;
 
 const obj = {
-  async initWasm(url: string, paramUrls: { txParams: string; treeParams: string }) {
+  async initWasm(paramUrls) {
     console.info('Initializing web worker...');
-    await init(url);
+    await init(wasmPath);
     await initThreadPool(navigator.hardwareConcurrency);
 
     const cache = await FileCache.init();

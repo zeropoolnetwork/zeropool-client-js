@@ -12,7 +12,7 @@
     "src"
   ],
   "scripts": {
-    "build": "rm -rf lib/ && npx tsc && webpack --config webpack.worker.conf.js",
+    "build": "rm -rf lib/ && npx tsc --AllowJs",
     "check": "tsc --noEmit"
   },
   "dependencies": {

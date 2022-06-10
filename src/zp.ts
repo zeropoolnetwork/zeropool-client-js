@@ -7,30 +7,27 @@ import { threads } from 'wasm-feature-detect';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-export let zp: any = zpSt;
+const workerStPath = new URL('./workerSt.js', import.meta.url);
+const workerMtPath = new URL('./workerMt.js', import.meta.url);
+// TODO: Make it parcel-compatible
+const wasmStPath = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url);
+const wasmMtPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
 
+export let zp: any = zpSt;
 export class ZeroPoolLibState {
     public fileCache: FileCache;
     public worker: any;
     public snarkParams: SnarkParams;
 }
-
-export interface Paths {
-    wasmMtPath: string;
-    wasmStPath: string;
-    workerStPath: string;
-    workerMtPath: string;
-}
-
-export async function init(paths: Paths, snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
+export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
     const isMt = await threads();
-    let workerPath = paths.workerStPath;
-    let wasmPath = paths.wasmStPath;
+    let workerPath = workerStPath;
+    let wasmPath = wasmStPath;
     if (isMt) {
         console.log('Using multi-threaded version');
         zp = zpMt;
-        workerPath = paths.workerMtPath;
-        wasmPath = paths.wasmMtPath;
+        workerPath = workerMtPath;
+        wasmPath = wasmMtPath;
     } else {
         console.log('Using single-threaded version');
     }
