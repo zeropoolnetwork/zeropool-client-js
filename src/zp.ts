@@ -7,8 +7,6 @@ import { threads } from 'wasm-feature-detect';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-const workerStPath = new URL('./workerSt.js', import.meta.url);
-const workerMtPath = new URL('./workerMt.js', import.meta.url);
 // TODO: Make it parcel-compatible
 const wasmStPath = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url);
 const wasmMtPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
@@ -22,12 +20,10 @@ export class ZeroPoolLibState {
 
 export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
     const isMt = await threads();
-    let workerPath = workerStPath;
     let wasmPath = wasmStPath;
     if (isMt) {
         console.log('Using multi-threaded version');
         zp = zpMt;
-        workerPath = workerMtPath;
         wasmPath = wasmMtPath;
     } else {
         console.log('Using single-threaded version');
@@ -35,10 +31,16 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
 
     const fileCache = await FileCache.init();
 
-    const _worker1 = await import('./workerSt.js');
-    const _worker2 = await import('./workerMt.js');
+    // const _worker1 = await import('./workerSt.js');
+    // const _worker2 = await import('./workerMt.js');
 
-    const worker: any = wrap(new Worker(workerPath));
+    let worker: any;
+    if (isMt) {
+        worker = wrap(new Worker(new URL('./workerMt.js', import.meta.url), { type: 'module' }));
+    } else {
+        worker = wrap(new Worker(new URL('./workerSt.js', import.meta.url), { type: 'module' }));
+    }
+
     await worker.initWasm(wasmPath, {
         txParams: snarkParams.transferParamsUrl,
         treeParams: snarkParams.treeParamsUrl,
