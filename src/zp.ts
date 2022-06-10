@@ -8,8 +8,8 @@ import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
 // TODO: Make it parcel-compatible
-const wasmStPath = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url);
-const wasmMtPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
+const wasmStPath = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
+const wasmMtPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
 
 export let zp: any = zpSt;
 export class ZeroPoolLibState {
@@ -30,9 +30,6 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
     }
 
     const fileCache = await FileCache.init();
-
-    // const _worker1 = await import('./workerSt.js');
-    // const _worker2 = await import('./workerMt.js');
 
     let worker: any;
     if (isMt) {
