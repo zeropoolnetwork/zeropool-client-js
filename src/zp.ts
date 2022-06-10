@@ -35,7 +35,9 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
 
     const fileCache = await FileCache.init();
 
-    const _worker = await import(workerPath.href);
+    const _worker1 = await import('./workerSt.js');
+    const _worker2 = await import('./workerMt.js');
+
     const worker: any = wrap(new Worker(workerPath));
     await worker.initWasm(wasmPath, {
         txParams: snarkParams.transferParamsUrl,
