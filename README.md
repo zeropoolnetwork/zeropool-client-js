@@ -13,7 +13,7 @@ const snarkParams = {
 };
 
 // Initialize the library.
-init('/path/to/wasm', '/path/to/worker.js', snarkParams)
+init(snarkParams)
   .then(async (ctx) => {
       // Spending key
       const sk = new Uint8Array(32);
