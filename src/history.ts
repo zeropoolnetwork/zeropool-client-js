@@ -1,10 +1,11 @@
 import { openDB, IDBPDatabase } from 'idb';
 import Web3 from 'web3';
 import Personal from 'web3-eth-personal';
-import { Account, Note, assembleAddress } from 'libzeropool-rs-wasm-web';
+import { Account, Note } from 'libzeropool-rs-wasm-web';
 import { ShieldedTx, TxType } from './tx';
 import { truncateHexPrefix, addHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
 import { CONSTANTS } from './constants';
+import { zp } from './zp';
 
 export enum HistoryTransactionType {
 	Deposit = 1,
@@ -264,7 +265,7 @@ export class HistoryStorage {
                       if (memo.acc) {
                         // 1. we initiated it => outcoming tx(s)
                         for (let {note, index} of memo.outNotes) {
-                          const destAddr = assembleAddress(note.d, note.p_d);
+                          const destAddr = zp.assembleAddress(note.d, note.p_d);
 
                           let rec: HistoryRecord;
                           if (memo.inNotes.find((obj) => { return obj.index === index})) {
@@ -280,7 +281,7 @@ export class HistoryStorage {
                       } else {
                         // 2. somebody initiated it => incoming tx(s)
                         for (let {note, index} of memo.inNotes) {
-                          const destAddr = assembleAddress(note.d, note.p_d);
+                          const destAddr = zp.assembleAddress(note.d, note.p_d);
                           let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash);
                           allRecords.push(HistoryRecordIdx.create(rec, index));
                         }

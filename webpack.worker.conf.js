@@ -1,7 +1,14 @@
 const path = require('path');
 
 module.exports = {
-  entry: './src/worker.ts',
+  entry: {
+    workerSt: './src/workerSt.ts',
+    workerMt: './src/workerMt.ts',
+  },
+  output: {
+    path: path.join(process.cwd(), 'lib'),
+    filename: '[name].js'
+  },
   target: 'webworker',
   mode: 'production',
   module: {
@@ -19,9 +26,5 @@ module.exports = {
   },
   resolve: {
     extensions: ['.tsx', '.ts', '.js'],
-  },
-  output: {
-    path: path.join(process.cwd(), 'lib'),
-    filename: 'worker.js',
   },
 };
