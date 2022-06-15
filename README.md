@@ -1,10 +1,24 @@
 # zeropool-client-js
 
-## Example
+TypeScript/JavaScript client library for creating and sending shielded ZeroPool transactions.
+
+## Setup
+The default Webpack 5 configuration should be sufficient for this library. The only requirement is that it must properly process the `new URL('...', import.meta.url)` syntax.
+
+## Multithread version
+Enable the following headers on your server to enable the multithreaded mode:
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+On average, this will speed up the transaction creation process by about 2.5-3 times.
+
+## Usage example
 ```js
 import { init, ZeropoolClient } from 'zeropool-client-js';
 import { EvmNetwork } from 'zeropool-client-js/lib/networks/evm';
 
+// Use https://github.com/zeropoolnetwork/libzeropool CLI to generate theese files
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
   treeParamsUrl: '/path/to/tree/params',
