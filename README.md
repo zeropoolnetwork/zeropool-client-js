@@ -15,8 +15,7 @@ On average, this will speed up the transaction creation process by about 2.5-3 t
 
 ## Usage example
 ```js
-import { init, ZeropoolClient } from 'zeropool-client-js';
-import { EvmNetwork } from 'zeropool-client-js/lib/networks/evm';
+import { init, ZeropoolClient, EvmNetwork } from 'zeropool-client-js';
 
 // Use https://github.com/zeropoolnetwork/libzeropool CLI to generate theese files
 const snarkParams = {
