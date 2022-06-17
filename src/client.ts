@@ -534,7 +534,7 @@ export class ZeropoolClient {
   // Currently it's juat a workaround
   private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
-    const BATCH_SIZE = 100;
+    const BATCH_SIZE = 10000;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
