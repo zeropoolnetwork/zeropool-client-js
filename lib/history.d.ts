@@ -56,7 +56,8 @@ export declare class HistoryStorage {
     getAllHistory(): Promise<HistoryRecord[]>;
     saveDecryptedMemo(memo: DecryptedMemo, pending: boolean): Promise<DecryptedMemo>;
     getDecryptedMemo(index: number, allowPending: boolean): Promise<DecryptedMemo | null>;
-    setLastMinedIndex(index: number): Promise<void>;
+    setLastMinedTxIndex(index: number): Promise<void>;
+    setLastPendingTxIndex(index: number): Promise<void>;
     cleanHistory(): Promise<void>;
     private syncHistory;
     private put;

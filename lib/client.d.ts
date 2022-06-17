@@ -6,6 +6,11 @@ export interface RelayerInfo {
     root: string;
     deltaIndex: string;
 }
+export interface BatchResult {
+    txCount: number;
+    maxMinedIndex: number;
+    maxPendingIndex: number;
+}
 export interface ClientConfig {
     /** Spending key. */
     sk: Uint8Array;

@@ -14,6 +14,12 @@ export interface RelayerInfo {
   deltaIndex: string;
 }
 
+export interface BatchResult {
+  txCount: number;
+  maxMinedIndex: number;
+  maxPendingIndex: number;
+}
+
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
   const url = new URL(`/transactions`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
@@ -506,15 +512,13 @@ export class ZeropoolClient {
     // TODO: it's just a workaroud while relayer doesn't return optimistic index!
     const optimisticIndex = nextIndex + 1;
 
-    // TODO: move to another place and change logic
-    zpState.history.setLastMinedIndex(nextIndex);
-
     if (optimisticIndex > startIndex) {
       const startTime = Date.now();
       
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
-      let batches: Promise<number>[] = [];
+      
+      let batches: Promise<BatchResult>[] = [];
 
       let readyToTransact = true;
 
@@ -527,6 +531,9 @@ export class ZeropoolClient {
 
           let txHashesPending: Record<number, string> = {};
           let indexedTxsPending: IndexedTx[] = [];
+
+          let maxMinedIndex = -1;
+          let maxPendingIndex = -1;
 
           for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
             const tx = txs[txIdx];
@@ -553,9 +560,11 @@ export class ZeropoolClient {
             if (tx.substr(0, 1) === '1') {
               indexedTxs.push(indexedTx);
               txHashes[memo_idx] = '0x' + txHash;
+              maxMinedIndex = Math.max(maxMinedIndex, memo_idx);
             } else {
               indexedTxsPending.push(indexedTx);
               txHashesPending[memo_idx] = '0x' + txHash;
+              maxPendingIndex = Math.max(maxPendingIndex, memo_idx);
             }
           }
 
@@ -582,17 +591,29 @@ export class ZeropoolClient {
             }
           }
 
-          return txs.length;
+          return {txCount: txs.length, maxMinedIndex, maxPendingIndex} ;
         });
         batches.push(oneBatch);
       };
 
-      let txCount = (await Promise.all(batches)).reduce((acc, cur) => acc + cur);;
+      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1}
+      let totalRes = (await Promise.all(batches)).reduce((acc, cur) => {
+        return {
+          txCount: acc.txCount + cur.txCount,
+          maxMinedIndex: Math.max(acc.maxMinedIndex, cur.maxMinedIndex),
+          maxPendingIndex: Math.max(acc.maxPendingIndex, cur.maxPendingIndex),
+        }
+      }, initRes);
+
+      // remove unneeded pending records
+      zpState.history.setLastMinedTxIndex(totalRes.maxMinedIndex);
+      zpState.history.setLastPendingTxIndex(totalRes.maxMinedIndex);
+
 
       const msElapsed = Date.now() - startTime;
-      const avgSpeed = msElapsed / txCount
+      const avgSpeed = msElapsed / totalRes.txCount
 
-      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+      console.log(`Sync finished in ${msElapsed / 1000} sec | ${totalRes.txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
       return readyToTransact;
     } else {
