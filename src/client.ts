@@ -607,7 +607,7 @@ export class ZeropoolClient {
 
       // remove unneeded pending records
       zpState.history.setLastMinedTxIndex(totalRes.maxMinedIndex);
-      zpState.history.setLastPendingTxIndex(totalRes.maxMinedIndex);
+      zpState.history.setLastPendingTxIndex(totalRes.maxPendingIndex);
 
 
       const msElapsed = Date.now() - startTime;
