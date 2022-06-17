@@ -182,14 +182,24 @@ export class HistoryStorage {
     return memo;
   }
 
-  public async setLastMinedIndex(index: number): Promise<void> {
-        for (const oneKey of this.unparsedPendingMemo.keys()) {
-          if (oneKey <= index) {
-            this.unparsedPendingMemo.delete(oneKey);
-          }
-        }
+  public async setLastMinedTxIndex(index: number): Promise<void> {
+    for (const oneKey of this.unparsedPendingMemo.keys()) {
+      if (oneKey <= index) {
+        this.unparsedPendingMemo.delete(oneKey);
+      }
+    }
 
-        await this.db.delete(DECRYPTED_PENDING_MEMO_TABLE, IDBKeyRange.upperBound(index));
+    await this.db.delete(DECRYPTED_PENDING_MEMO_TABLE, IDBKeyRange.upperBound(index));
+  }
+
+  public async setLastPendingTxIndex(index: number): Promise<void> {
+    for (const oneKey of this.unparsedPendingMemo.keys()) {
+      if (oneKey > index) {
+        this.unparsedPendingMemo.delete(oneKey);
+      }
+    }
+
+    await this.db.delete(DECRYPTED_PENDING_MEMO_TABLE, IDBKeyRange.lowerBound(index, true));
   }
 
   public async cleanHistory(): Promise<void> {
