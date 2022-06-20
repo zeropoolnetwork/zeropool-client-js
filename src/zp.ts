@@ -18,6 +18,11 @@ export class ZeroPoolLibState {
     public snarkParams: SnarkParams;
 }
 
+/**
+ * Initialize the library.
+ * @param snarkParams 
+ * @returns stuff needed for creating a ZeroPoolState
+ */
 export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
     const isMt = await threads();
     let wasmPath = wasmStPath;

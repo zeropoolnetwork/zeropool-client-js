@@ -10,7 +10,9 @@ import { HistoryTransactionType, HistoryRecord, HistoryRecordIdx, HistoryStorage
 import { zp } from './zp';
 
 export interface RelayerInfo {
+  /** The current merkle tree root */
   root: string;
+  /** Current transaction index in the pool */
   deltaIndex: string;
 }
 
@@ -103,7 +105,16 @@ export class ZeropoolClient {
     return state.account.generateAddress();
   }
 
-  // TODO: generalize wei/gwei
+  /**
+   * Create and send a deposit transaction to the relayer.
+   * @param tokenAddress address of the token smart contract
+   * @param amountWei non-denominated amount
+   * @param sign general signature function
+   * @param fromAddress address of the sender
+   * @param fee relayer fee
+   * @param isBridge 
+   * @returns transaction hash
+   */
   public async deposit(
     tokenAddress: string,
     amountWei: string,
@@ -152,6 +163,13 @@ export class ZeropoolClient {
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType, fullSignature);
   }
 
+  /**
+   * Create and send a transfer transaction to the relayer.
+   * @param tokenAddress address of the token smart contract
+   * @param outsWei one or multiple outputs of the transaction
+   * @param fee relayer fee
+   * @returns transaction hash
+   */
   public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
@@ -190,6 +208,14 @@ export class ZeropoolClient {
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
+  /**
+   * Create and send a withdraw transaction to the relayer.
+   * @param tokenAddress address of the token smart contract
+   * @param address withdraw recipient address
+   * @param amountWei non-denominated amount
+   * @param fee relayer fee
+   * @returns transaction hash
+   */
   public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -249,6 +275,11 @@ export class ZeropoolClient {
   // TODO: Transaction list
 
 
+  /**
+   * Get the user's total pool balance (account + notes).
+   * @param tokenAddress 
+   * @returns non-denominated balance
+   */
   public async getTotalBalance(tokenAddress: string): Promise<string> {
     await this.updateState(tokenAddress);
 
@@ -256,6 +287,7 @@ export class ZeropoolClient {
   }
 
   /**
+   * Get the user's account balances.
    * @returns [total, account, note]
    */
   public async getBalances(tokenAddress: string): Promise<[string, string, string]> {
@@ -264,6 +296,7 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getBalances();
   }
 
+  /** Returns an object representation of the inner state for debug purposes.  */
   public async rawState(tokenAddress: string): Promise<any> {
     return await this.zpStates[tokenAddress].rawState();
   }
@@ -274,6 +307,7 @@ export class ZeropoolClient {
     return await this.zpStates[tokenAddress].history.getAllHistory();
   }
 
+  /** Synchronize the inner state with the relayer */
   public async updateState(tokenAddress: string) {
     if (this.updateStatePromise == undefined) {
       this.updateStatePromise = this.updateStateNewWorker(tokenAddress).finally(() => {

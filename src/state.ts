@@ -10,6 +10,14 @@ export class ZeroPoolState {
   public account: UserAccount;
   public history: HistoryStorage;
 
+  /**
+   * Initialize ZeroPoolState for the specified user account (spending key).
+   * @param sk spending key
+   * @param networkName network name (ethereum, kovan, etc.)
+   * @param rpcUrl node RPC url
+   * @param denominator pool currency denominator
+   * @returns {ZeroPoolState}
+   */
   public static async create(sk: Uint8Array, networkName: string, rpcUrl: string, denominator: bigint): Promise<ZeroPoolState> {
     const zpState = new ZeroPoolState();
     zpState.denominator = denominator;

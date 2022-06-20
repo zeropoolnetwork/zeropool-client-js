@@ -6,4 +6,9 @@ export declare class ZeroPoolLibState {
     worker: any;
     snarkParams: SnarkParams;
 }
+/**
+ * Initialize the library.
+ * @param snarkParams
+ * @returns stuff needed for creating a ZeroPoolState
+ */
 export declare function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState>;

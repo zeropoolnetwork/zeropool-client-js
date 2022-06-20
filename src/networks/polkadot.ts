@@ -2,7 +2,7 @@ import { NetworkBackend } from './network';
 
 export class PolkadotNetwork implements NetworkBackend {
     async getDenominator(contractAddress: string): Promise<string> {
-        return '1000'; // FIXME
+        return '1000';
     }
 
     isSignatureCompact(): boolean {
