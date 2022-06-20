@@ -28,7 +28,8 @@ export declare class HistoryRecord {
     amount: bigint;
     fee: bigint;
     txHash: string;
-    constructor(type: HistoryTransactionType, timestamp: number, from: string, to: string, amount: bigint, fee: bigint, txHash: string);
+    pending: boolean;
+    constructor(type: HistoryTransactionType, timestamp: number, from: string, to: string, amount: bigint, fee: bigint, txHash: string, pending: boolean);
     toJson(): string;
 }
 export declare class HistoryRecordIdx {
@@ -45,6 +46,7 @@ export declare class HistoryStorage {
     private db;
     private syncIndex;
     private unparsedMemo;
+    private unparsedPendingMemo;
     private currentHistory;
     private syncHistoryPromise;
     private web3;
@@ -52,8 +54,10 @@ export declare class HistoryStorage {
     static init(db_id: string, rpcUrl: string): Promise<HistoryStorage>;
     preloadCache(): Promise<void>;
     getAllHistory(): Promise<HistoryRecord[]>;
-    saveDecryptedMemo(memo: DecryptedMemo): Promise<DecryptedMemo>;
-    getDecryptedMemo(index: number): Promise<DecryptedMemo | null>;
+    saveDecryptedMemo(memo: DecryptedMemo, pending: boolean): Promise<DecryptedMemo>;
+    getDecryptedMemo(index: number, allowPending: boolean): Promise<DecryptedMemo | null>;
+    setLastMinedTxIndex(index: number): Promise<void>;
+    setLastPendingTxIndex(index: number): Promise<void>;
     cleanHistory(): Promise<void>;
     private syncHistory;
     private put;

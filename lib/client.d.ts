@@ -6,6 +6,11 @@ export interface RelayerInfo {
     root: string;
     deltaIndex: string;
 }
+export interface BatchResult {
+    txCount: number;
+    maxMinedIndex: number;
+    maxPendingIndex: number;
+}
 export interface ClientConfig {
     /** Spending key. */
     sk: Uint8Array;
@@ -34,15 +39,19 @@ export declare class ZeropoolClient {
     withdraw(tokenAddress: string, address: string, amountWei: string, fee?: string): Promise<string>;
     waitJobCompleted(tokenAddress: string, jobId: string): Promise<string>;
     getTotalBalance(tokenAddress: string): Promise<string>;
+    getOptimisticTotalBalance(tokenAddress: string): Promise<string>;
     /**
      * @returns [total, account, note]
      */
     getBalances(tokenAddress: string): Promise<[string, string, string]>;
     rawState(tokenAddress: string): Promise<any>;
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
+    isReadyToTransact(tokenAddress: string): Promise<boolean>;
+    waitReadyToTransact(tokenAddress: string): Promise<boolean>;
     cleanState(tokenAddress: string): Promise<void>;
-    updateState(tokenAddress: string): Promise<void>;
-    private updateStateNewWorker;
+    updateState(tokenAddress: string): Promise<boolean>;
+    private updateStateWorker;
+    private updateStateOptimisticWorker;
     logStateSync(startIndex: number, endIndex: number, decryptedMemos: DecryptedMemo[]): Promise<void>;
     free(): void;
 }

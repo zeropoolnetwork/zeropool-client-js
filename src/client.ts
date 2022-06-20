@@ -6,7 +6,7 @@ import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryRecord } from './history'
+import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 export interface RelayerInfo {
@@ -14,8 +14,23 @@ export interface RelayerInfo {
   deltaIndex: string;
 }
 
+export interface BatchResult {
+  txCount: number;
+  maxMinedIndex: number;
+  maxPendingIndex: number;
+}
+
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
   const url = new URL(`/transactions`, relayerUrl);
+  url.searchParams.set('limit', limit.toString());
+  url.searchParams.set('offset', offset.toString());
+  const res = await (await fetch(url.toString())).json();
+
+  return res;
+}
+
+async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
+  const url = new URL(`/transactions/v2`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
   url.searchParams.set('offset', offset.toString());
   const res = await (await fetch(url.toString())).json();
@@ -75,7 +90,7 @@ export class ZeropoolClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
-  private updateStatePromise: Promise<void> | undefined;
+  private updateStatePromise: Promise<boolean> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZeropoolClient> {
     const client = new ZeropoolClient();
@@ -303,6 +318,37 @@ export class ZeropoolClient {
     return this.zpStates[tokenAddress].getTotalBalance();
   }
 
+  public async getOptimisticTotalBalance(tokenAddress: string): Promise<string> {
+    const state = this.zpStates[tokenAddress];
+
+    const confirmedBalance = await this.getTotalBalance(tokenAddress);
+    const historyRecords = await this.getAllHistory(tokenAddress);
+
+    let pendingDelta = BigInt(0);
+    for (const oneRecord of historyRecords) {
+      if (oneRecord.pending) {
+        switch (oneRecord.type) {
+          case HistoryTransactionType.Deposit:
+          case HistoryTransactionType.TransferIn: {
+            pendingDelta += oneRecord.amount;
+            break;
+          }
+          case HistoryTransactionType.Withdrawal:
+          case HistoryTransactionType.TransferOut: {
+            pendingDelta -= oneRecord.amount;
+            break;
+          }
+
+          default: break;
+        }
+
+        pendingDelta -= oneRecord.fee;
+      }
+    }
+
+    return (BigInt(confirmedBalance) + (pendingDelta * state.denominator)).toString();
+  }
+
   /**
    * @returns [total, account, note]
    */
@@ -322,23 +368,52 @@ export class ZeropoolClient {
     return await this.zpStates[tokenAddress].history.getAllHistory();
   }
 
+  public async isReadyToTransact(tokenAddress: string): Promise<boolean> {
+    return await this.updateState(tokenAddress);
+  }
+
+  public async waitReadyToTransact(tokenAddress: string): Promise<boolean> {
+    const token = this.tokens[tokenAddress];
+
+    const INTERVAL_MS = 1000;
+    const MAX_ATTEMPTS = 300;
+    let attepts = 0;
+    while (true) {
+      let ready = await this.updateState(tokenAddress);
+
+      if (ready) {
+        break;
+      }
+
+      attepts++;
+      if (attepts > MAX_ATTEMPTS) {
+        return false;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    return true;
+  }
+
   public async cleanState(tokenAddress: string): Promise<void> {
     await this.zpStates[tokenAddress].clean();
   }
 
-  public async updateState(tokenAddress: string) {
+  public async updateState(tokenAddress: string): Promise<boolean> {
     if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateNewWorker(tokenAddress).finally(() => {
+      this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
         this.updateStatePromise = undefined;
       });
     } else {
       console.info(`The state currently updating, waiting for finish...`);
     }
 
-    await this.updateStatePromise;
+    return this.updateStatePromise;
   }
 
-  private async updateStateNewWorker(tokenAddress: string): Promise<void> {
+  // Deprecated method. Please use updateStateOptimisticWorker instead
+  private async updateStateWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 100;
 
@@ -348,6 +423,8 @@ export class ZeropoolClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+
+
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
@@ -390,7 +467,7 @@ export class ZeropoolClient {
             // save memos corresponding to the our account to restore history
             const myMemo = decryptedMemos[decryptedMemoIndex];
             myMemo.txHash = txHashes[myMemo.index];
-            zpState.history.saveDecryptedMemo(myMemo);
+            zpState.history.saveDecryptedMemo(myMemo, false);
             
             // try to convert history on the fly
             // let hist = convertToHistory(myMemo, txHash);
@@ -411,6 +488,138 @@ export class ZeropoolClient {
 
     } else {
       console.log(`Local state is up to date @${startIndex}`);
+    }
+
+    // Unoptimistic method: it's assumes we always ready to transact
+    // (but transaction could fail due to doublespend reason)
+    return true;
+  }
+
+  // ---===< TODO >===---
+  // The optimistic state currently processed only in the client library
+  // Wasm package holds only the mined transactions
+  // Currently it's juat a workaround
+  private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
+    const BATCH_SIZE = 10000;
+
+    const zpState = this.zpStates[tokenAddress];
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    const startIndex = Number(zpState.account.nextTreeIndex());
+    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+    // TODO: it's just a workaroud while relayer doesn't return optimistic index!
+    const optimisticIndex = nextIndex + 1;
+
+    if (optimisticIndex > startIndex) {
+      const startTime = Date.now();
+      
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+
+      
+      let batches: Promise<BatchResult>[] = [];
+
+      let readyToTransact = true;
+
+      for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
+        let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
+          console.log(`Getting ${txs.length} transactions from index ${i}`);
+          
+          let txHashes: Record<number, string> = {};
+          let indexedTxs: IndexedTx[] = [];
+
+          let txHashesPending: Record<number, string> = {};
+          let indexedTxsPending: IndexedTx[] = [];
+
+          let maxMinedIndex = -1;
+          let maxPendingIndex = -1;
+
+          for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
+            const tx = txs[txIdx];
+            // Get the first leaf index in the tree
+            const memo_idx = i + txIdx * OUTPLUSONE;
+            
+            // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
+            // 1. Extract memo block
+            const memo = tx.slice(129); // Skip mined flag, txHash and commitment
+
+            // 2. Get transaction commitment
+            const commitment = tx.substr(65, 64)
+            
+            const indexedTx: IndexedTx = {
+              index: memo_idx,
+              memo: hexToBuf(memo),
+              commitment: hexToBuf(commitment),
+            }
+
+            // 3. Get txHash
+            const txHash = tx.substr(1, 64);
+
+            // 4. Get mined flag
+            if (tx.substr(0, 1) === '1') {
+              indexedTxs.push(indexedTx);
+              txHashes[memo_idx] = '0x' + txHash;
+              maxMinedIndex = Math.max(maxMinedIndex, memo_idx);
+            } else {
+              indexedTxsPending.push(indexedTx);
+              txHashesPending[memo_idx] = '0x' + txHash;
+              maxPendingIndex = Math.max(maxPendingIndex, memo_idx);
+            }
+          }
+
+          const decryptedMemos = state.account.cacheTxs(indexedTxs);
+          this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
+          for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
+            // save memos corresponding to the our account to restore history
+            const myMemo = decryptedMemos[decryptedMemoIndex];
+            myMemo.txHash = txHashes[myMemo.index];
+            zpState.history.saveDecryptedMemo(myMemo, false);
+          }
+
+          const decryptedPendingMemos = state.account.decodeTxs(indexedTxsPending);
+          for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
+            // save memos corresponding to the our account to restore history
+            const myMemo = decryptedPendingMemos[idx];
+            myMemo.txHash = txHashesPending[myMemo.index];
+            zpState.history.saveDecryptedMemo(myMemo, true);
+
+            if (myMemo.acc != undefined) {
+              // There is a pending transaction initiated by ourselfs
+              // So we cannot create new transactions in that case
+              readyToTransact = false;
+            }
+          }
+
+          return {txCount: txs.length, maxMinedIndex, maxPendingIndex} ;
+        });
+        batches.push(oneBatch);
+      };
+
+      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1}
+      let totalRes = (await Promise.all(batches)).reduce((acc, cur) => {
+        return {
+          txCount: acc.txCount + cur.txCount,
+          maxMinedIndex: Math.max(acc.maxMinedIndex, cur.maxMinedIndex),
+          maxPendingIndex: Math.max(acc.maxPendingIndex, cur.maxPendingIndex),
+        }
+      }, initRes);
+
+      // remove unneeded pending records
+      zpState.history.setLastMinedTxIndex(totalRes.maxMinedIndex);
+      zpState.history.setLastPendingTxIndex(totalRes.maxPendingIndex);
+
+
+      const msElapsed = Date.now() - startTime;
+      const avgSpeed = msElapsed / totalRes.txCount
+
+      console.log(`Sync finished in ${msElapsed / 1000} sec | ${totalRes.txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+
+      return readyToTransact;
+    } else {
+      console.log(`Local state is up to date @${startIndex}`);
+
+      return true;
     }
   }
 
