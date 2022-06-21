@@ -2,7 +2,7 @@ import { validateAddress, Output, Proof, DecryptedMemo } from 'libzkbob-rs-wasm-
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
-import { ZeroPoolState } from './state';
+import { ZkBobState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
@@ -84,16 +84,16 @@ export interface ClientConfig {
   network: NetworkBackend;
 }
 
-export class ZeropoolClient {
-  private zpStates: { [tokenAddress: string]: ZeroPoolState };
+export class ZkBobClient {
+  private zpStates: { [tokenAddress: string]: ZkBobState };
   private worker: any;
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
   private updateStatePromise: Promise<boolean> | undefined;
 
-  public static async create(config: ClientConfig): Promise<ZeropoolClient> {
-    const client = new ZeropoolClient();
+  public static async create(config: ClientConfig): Promise<ZkBobClient> {
+    const client = new ZkBobClient();
     client.zpStates = {};
     client.worker = config.worker;
     client.snarkParams = config.snarkParams;
@@ -107,7 +107,7 @@ export class ZeropoolClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
+      client.zpStates[address] = await ZkBobState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
     }
 
     return client;

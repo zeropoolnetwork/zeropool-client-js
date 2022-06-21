@@ -1,4 +1,4 @@
-export const ZEROPOOL_PURPOSE = 2448;
+export const ZKBOB_PURPOSE = 2448;
 
 // Using strings here for better debuggability
 export enum NetworkType {
@@ -21,7 +21,7 @@ export namespace NetworkType {
   }
 
   export function privateDerivationPath(network: NetworkType): string {
-    return `m/${ZEROPOOL_PURPOSE}'/${NetworkType.coinNumber(network)}'`;
+    return `m/${ZKBOB_PURPOSE}'/${NetworkType.coinNumber(network)}'`;
   }
 
   export function accountPath(network: NetworkType, account: number): string {
