@@ -1,5 +1,5 @@
 {
-  "name": "zkbob-client-js-try",
+  "name": "zkbob-client-js",
   "version": "0.4.0",
   "description": "zkBob integration library",
   "repository": "git@github.com:zkBob/libzkbob-client-js.git",
