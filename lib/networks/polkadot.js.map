@@ -1,1 +1,0 @@
-{"version":3,"file":"polkadot.js","sourceRoot":"","sources":["../../src/networks/polkadot.ts"],"names":[],"mappings":";;;AAEA,MAAa,eAAe;IACxB,KAAK,CAAC,cAAc,CAAC,eAAuB;QACxC,OAAO,MAAM,CAAC,CAAC,QAAQ;IAC3B,CAAC;IAED,kBAAkB;QACd,OAAO,KAAK,CAAC;IACjB,CAAC;IAED,kBAAkB;QACd,OAAO,UAAU,CAAC;IACtB,CAAC;IAED,SAAS;QACL,OAAO,EAAE,CAAC;IACd,CAAC;CACJ;AAhBD,0CAgBC"}

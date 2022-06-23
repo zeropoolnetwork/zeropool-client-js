@@ -1,9 +1,9 @@
-# zeropool-client-js
+# zkbob-client-js
 
 ## Example
 ```js
-import { init, ZeropoolClient } from 'zeropool-client-js';
-import { EvmNetwork } from 'zeropool-client-js/lib/networks/evm';
+import { init, ZkBobClient } from 'zkbob-client-js';
+import { EvmNetwork } from 'zkbob-client-js/lib/networks/evm';
 
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
@@ -28,7 +28,7 @@ init('/path/to/wasm', '/path/to/worker.js', snarkParams)
 
       const evmRpcUrl = '...';
       const network = new EvmNetwork(evmRpcUrl);
-      const client = await ZeropoolClient.create({
+      const client = await ZkBobClient.create({
         sk,
         tokens,
         snarkParams: ctx.snarkParams,

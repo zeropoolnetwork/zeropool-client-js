@@ -4,13 +4,13 @@ import { UserAccount, UserState } from 'libzkbob-rs-wasm-web';
 import { bufToHex } from './utils';
 import { HistoryStorage } from './history'
 
-export class ZeroPoolState {
+export class ZkBobState {
   public denominator: bigint;
   public account: UserAccount;
   public history: HistoryStorage;
 
-  public static async create(sk: Uint8Array, networkName: string, rpcUrl: string, denominator: bigint): Promise<ZeroPoolState> {
-    const zpState = new ZeroPoolState();
+  public static async create(sk: Uint8Array, networkName: string, rpcUrl: string, denominator: bigint): Promise<ZkBobState> {
+    const zpState = new ZkBobState();
     zpState.denominator = denominator;
     const userId = bufToHex(hash(sk));
     const state = await UserState.init(`zp.${networkName}.${userId}`);
