@@ -283,6 +283,14 @@ export class HistoryStorage {
       const timeMs = Date.now() - startTime;
       console.log(`History has been synced up to index ${this.syncIndex} in ${timeMs} msec`);
     } else {
+      // No any records (new or pending)
+      // delete all pending history records
+      for (const [index, record] of this.currentHistory.entries()) {
+        if (record.pending) {
+          this.currentHistory.delete(index);
+        }
+      }
+
       console.log(`Memo sync is not required: already up-to-date (on index ${this.syncIndex + 1})`);
     }
   }
