@@ -523,7 +523,7 @@ export class ZkBobClient {
       let readyToTransact = true;
 
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-        let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
+        let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
           
           let txHashes: Record<number, string> = {};
@@ -568,26 +568,33 @@ export class ZkBobClient {
             }
           }
 
-          const decryptedMemos = state.account.cacheTxs(indexedTxs);
-          this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
-          for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
-            // save memos corresponding to the our account to restore history
-            const myMemo = decryptedMemos[decryptedMemoIndex];
-            myMemo.txHash = txHashes[myMemo.index];
-            zpState.history.saveDecryptedMemo(myMemo, false);
+          if (indexedTxs.length > 0) {
+            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
+            const decryptedMemos = parseResult.decryptedMemos;
+            state.account.updateState(parseResult.stateUpdate);
+            this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
+            for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
+              // save memos corresponding to the our account to restore history
+              const myMemo = decryptedMemos[decryptedMemoIndex];
+              myMemo.txHash = txHashes[myMemo.index];
+              zpState.history.saveDecryptedMemo(myMemo, false);
+            }
           }
 
-          const decryptedPendingMemos = state.account.decodeTxs(indexedTxsPending);
-          for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
-            // save memos corresponding to the our account to restore history
-            const myMemo = decryptedPendingMemos[idx];
-            myMemo.txHash = txHashesPending[myMemo.index];
-            zpState.history.saveDecryptedMemo(myMemo, true);
+          if (indexedTxsPending.length > 0) {
+            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxsPending);
+            const decryptedPendingMemos = parseResult.decryptedMemos;
+            for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
+              // save memos corresponding to the our account to restore history
+              const myMemo = decryptedPendingMemos[idx];
+              myMemo.txHash = txHashesPending[myMemo.index];
+              zpState.history.saveDecryptedMemo(myMemo, true);
 
-            if (myMemo.acc != undefined) {
-              // There is a pending transaction initiated by ourselfs
-              // So we cannot create new transactions in that case
-              readyToTransact = false;
+              if (myMemo.acc != undefined) {
+                // There is a pending transaction initiated by ourselfs
+                // So we cannot create new transactions in that case
+                readyToTransact = false;
+              }
             }
           }
 

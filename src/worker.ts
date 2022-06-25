@@ -1,5 +1,5 @@
 import { expose } from 'comlink';
-import { Proof, Params, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
+import { Proof, Params, UserAccount, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
 
 import { FileCache } from './file-cache';
 
@@ -49,6 +49,14 @@ const obj = {
     return new Promise(async resolve => {
       console.debug('Web worker: proveTree');
       const result = Proof.tree(treeParams, pub, sec);
+      resolve(result);
+    });
+  },
+
+  async parseTxs(sk: Uint8Array, indexedTxs: IndexedTx[]): Promise<ParseTxsResult> {
+    return new Promise(async resolve => {
+      console.debug('Web worker: parseTxs');
+      const result = UserAccount.parseTxs(sk, indexedTxs)
       resolve(result);
     });
   },
