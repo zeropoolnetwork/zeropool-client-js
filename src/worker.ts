@@ -1,10 +1,11 @@
 import { expose } from 'comlink';
-import { Proof, Params, UserAccount, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
+import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
 
 import { FileCache } from './file-cache';
 
 let txParams: Params;
 let treeParams: Params;
+let txParser: TxParser;
 
 const obj = {
   async initWasm(url: string, paramUrls: { txParams: string; treeParams: string }) {
@@ -34,6 +35,7 @@ const obj = {
       treeParams = Params.fromBinaryExtended(new Uint8Array(treeParamsData!), false, false);
     }
 
+    txParser = TxParser.new()
     console.info('Web worker init complete.');
   },
 
@@ -53,10 +55,10 @@ const obj = {
     });
   },
 
-  async parseTxs(sk: Uint8Array, indexedTxs: IndexedTx[]): Promise<ParseTxsResult> {
+  async parseTxs(sk: Uint8Array, txs: IndexedTx[]): Promise<ParseTxsResult> {
     return new Promise(async resolve => {
       console.debug('Web worker: parseTxs');
-      const result = UserAccount.parseTxs(sk, indexedTxs)
+      const result = txParser.parseTxs(sk, txs)
       resolve(result);
     });
   },

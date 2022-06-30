@@ -466,8 +466,8 @@ export class ZkBobClient {
             
             const indexedTx: IndexedTx = {
               index: memo_idx,
-              memo: hexToBuf(memo),
-              commitment: hexToBuf(commitment),
+              memo: memo,
+              commitment: commitment,
             }
 
             // 3. Get txHash
