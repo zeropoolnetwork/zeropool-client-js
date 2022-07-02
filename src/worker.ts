@@ -59,6 +59,7 @@ const obj = {
     return new Promise(async resolve => {
       console.debug('Web worker: parseTxs');
       const result = txParser.parseTxs(sk, txs)
+      sk.fill(0)
       resolve(result);
     });
   },
