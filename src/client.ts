@@ -121,7 +121,8 @@ export class ZeropoolClient {
     sign: (data: string) => Promise<string>,
     fromAddress: string | null = null,
     fee: string = '0',
-    isBridge: boolean = false
+    isBridge: boolean = false,
+    outsWei: Output[],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -132,9 +133,25 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
+    const outGwei = outsWei.map(({ to, amount }) => {
+      if (!zp.validateAddress(to)) {
+        throw new Error('Invalid address. Expected a shielded address.');
+      }
+
+      const bnAmount = BigInt(amount);
+      if (bnAmount < state.denominator) {
+        throw new Error('One of the values is too small');
+      }
+
+      return {
+        to,
+        amount: (bnAmount / state.denominator).toString(),
+      }
+    });
+
     const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    const txData = await state.account.createDeposit({ amount: amountGwei, fee, outputs: outGwei });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
