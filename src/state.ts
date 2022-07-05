@@ -38,6 +38,14 @@ export class ZkBobState {
     return [total.toString(), acc.toString(), note.toString()];
   }
 
+  public accountBalance(): any {
+    return this.account.accountBalance();
+  }
+
+  public usableNotes(): any {
+    return this.account.getUsableNotes();
+  }
+
   public rawState(): any {
     return this.account.getWholeState();
   }

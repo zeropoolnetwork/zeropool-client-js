@@ -20,6 +20,13 @@ export interface BatchResult {
   maxPendingIndex: number;
 }
 
+export interface TxAmount { // all values are in wei
+  amount: bigint;  // total amount (fee includes)
+  fee: bigint;  // fee 
+  accountLimit: bigint;  // minimum account remainder after transaction
+                         // (used for complex multi-tx transfers, default: 0)
+}
+
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
   const url = new URL(`/transactions`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
@@ -280,6 +287,18 @@ export class ZkBobClient {
     }
 
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+  }
+
+  public async getTransactionParts(tokenAddress: string, amountWei: string, fee: string): Promise<Array<TxAmount>> {
+    const state = this.zpStates[tokenAddress];
+    await this.updateState(tokenAddress);
+
+    let result: Array<TxAmount> = [];
+
+    const usableNotes = state.usableNotes();
+    const accountBalance = state.accountBalance();
+
+    return result;
   }
 
   // return transaction hash on success or throw an error
