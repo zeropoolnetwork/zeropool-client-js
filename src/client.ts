@@ -21,7 +21,7 @@ export interface BatchResult {
 }
 
 export interface TxAmount { // all values are in wei
-  amount: bigint;  // total amount (fee includes)
+  amount: bigint;  // tx amount (without fee)
   fee: bigint;  // fee 
   accountLimit: bigint;  // minimum account remainder after transaction
                          // (used for complex multi-tx transfers, default: 0)
@@ -296,7 +296,45 @@ export class ZkBobClient {
     let result: Array<TxAmount> = [];
 
     const usableNotes = state.usableNotes();
-    const accountBalance = state.accountBalance();
+    const accountBalance = BigInt(state.accountBalance());
+
+    let denomFee = BigInt(fee) / state.denominator;
+    let remainAmount = BigInt(amountWei) / state.denominator;
+
+    if (accountBalance >= remainAmount + denomFee) {
+      result.push({amount: remainAmount, fee: denomFee, accountLimit: BigInt(0)});
+    } else {
+      let notesParts: Array<bigint> = [];
+      let curPart = BigInt(0);
+      for(let i = 0; i < usableNotes.length; i++) {
+        const curNote = usableNotes[i][1];
+
+        if (i > 0 && i%3 == 0) {
+          notesParts.push(curPart);
+          curPart = BigInt(0);
+        }
+
+        curPart += BigInt(curNote.b);
+
+        if (i == usableNotes.length - 1) {
+          notesParts.push(curPart);
+        }
+      }
+
+      let oneTxPart = accountBalance;
+
+      for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
+        oneTxPart += notesParts[i];
+        if (oneTxPart - denomFee > remainAmount) {
+          oneTxPart = remainAmount + denomFee;
+        }
+
+        result.push({amount: oneTxPart - denomFee, fee: denomFee, accountLimit: BigInt(0)});
+
+        remainAmount -= (oneTxPart - denomFee);
+        oneTxPart = BigInt(0);
+      }
+    }
 
     return result;
   }

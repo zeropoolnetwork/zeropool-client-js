@@ -38,7 +38,7 @@ export class ZkBobState {
     return [total.toString(), acc.toString(), note.toString()];
   }
 
-  public accountBalance(): any {
+  public accountBalance(): string {
     return this.account.accountBalance();
   }
 
