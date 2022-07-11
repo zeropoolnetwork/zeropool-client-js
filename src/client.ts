@@ -1,4 +1,4 @@
-import { validateAddress, Output, Proof, DecryptedMemo } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -260,6 +260,61 @@ export class ZkBobClient {
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
+  public async transferMulti(tokenAddress: string, to: string, amountWei: string, fee: string = '0'): Promise<string[]> {
+    const state = this.zpStates[tokenAddress];
+    const token = this.tokens[tokenAddress];
+
+    if (!validateAddress(to)) {
+      throw new Error('Invalid address. Expected a shielded address.');
+    }
+
+    if (BigInt(amountWei) < state.denominator) {
+      throw new Error('Transfer amount is too small');
+    }
+
+    const txParts = await this.getTransactionParts(tokenAddress, amountWei, fee);
+
+    if (txParts.length == 0) {
+      throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
+    }
+
+    const transfers = txParts.map(({amount, fee, accountLimit}) => {
+      const oneTransfer: ITransferData = {
+        outputs: [{to, amount: amount.toString()}],
+        fee: fee.toString()
+      };
+
+      return oneTransfer;
+    });
+
+    const txsData = await state.account.createMultiTransfer(transfers);
+
+
+    const txProofPromises = txsData.map(async (transfer) => {
+      const startProofDate = Date.now();
+      const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
+      const proofTime = (Date.now() - startProofDate) / 1000;
+      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
+      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      if (!txValid) {
+        throw new Error('invalid tx proof');
+      }
+
+      return {memo: transfer.memo, proof: txProof};
+      //return sendTransaction(token.relayerUrl, txProof, transfer.memo, TxType.Transfer);
+    });
+
+    const proofs = await Promise.all(txProofPromises);
+
+    let jobIds: string[] = [];
+    for (var {memo, proof} of proofs) {
+      jobIds.push(await sendTransaction(token.relayerUrl, proof, memo, TxType.Transfer));
+    }
+    
+    return jobIds;
+  }
+
   public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -329,10 +384,18 @@ export class ZkBobClient {
           oneTxPart = remainAmount + denomFee;
         }
 
+        if(oneTxPart < denomFee) {
+          break;
+        }
+
         result.push({amount: oneTxPart - denomFee, fee: denomFee, accountLimit: BigInt(0)});
 
         remainAmount -= (oneTxPart - denomFee);
         oneTxPart = BigInt(0);
+      }
+
+      if(remainAmount > 0){
+        result = [];
       }
     }
 
