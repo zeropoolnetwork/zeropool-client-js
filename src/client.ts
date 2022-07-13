@@ -328,8 +328,14 @@ export class ZkBobClient {
     const proofs = await Promise.all(txProofPromises);
 
     let jobIds: string[] = [];
-    for (var {memo, proof} of proofs) {
+    for (let i = 0; i<proofs.length; i++) {
+      let {memo, proof} = proofs[i];
       jobIds.push(await sendTransaction(token.relayerUrl, proof, memo, TxType.Transfer));
+      if (i != proofs.length - 1) {
+        // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
+        // remove this delay after adding multi-tx support to relayer
+        await new Promise(function(resolve){ setTimeout(resolve, 60000);});
+      }
     }
     
     return jobIds;
