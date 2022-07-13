@@ -1,4 +1,4 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -341,7 +341,7 @@ export class ZkBobClient {
     return jobIds;
   }
 
-  public async withdraw(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
+  public async withdrawSingle(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -376,6 +376,70 @@ export class ZkBobClient {
     }
 
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+  }
+
+  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string[]> {
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    const bnAmountGwei = BigInt(amountGwei);
+    const bnFeeGwei = BigInt(feeGwei);
+
+    if (bnAmountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    const txParts = await this.getTransactionParts(tokenAddress, amountGwei, feeGwei);
+
+    if (txParts.length == 0) {
+      throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
+    }
+
+    const addressBin = hexToBuf(address);
+
+    const transfers = txParts.map(({amount, fee, accountLimit}) => {
+      const oneTransfer: IWithdrawData = {
+        amount: amount.toString(),
+        fee: fee.toString(),
+        to: addressBin,
+        native_amount: '0',
+        energy_amount: '0',
+      };
+
+      return oneTransfer;
+    });
+
+    const txsData = await state.account.createMultiWithdraw(transfers);
+
+    const txProofPromises = txsData.map(async (transfer) => {
+      const startProofDate = Date.now();
+      const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
+      const proofTime = (Date.now() - startProofDate) / 1000;
+      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
+      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      if (!txValid) {
+        throw new Error('invalid tx proof');
+      }
+
+      return {memo: transfer.memo, proof: txProof};
+      //return sendTransaction(token.relayerUrl, txProof, transfer.memo, TxType.Transfer);
+    });
+
+    const proofs = await Promise.all(txProofPromises);
+
+    let jobIds: string[] = [];
+    for (let i = 0; i<proofs.length; i++) {
+      let {memo, proof} = proofs[i];
+      jobIds.push(await sendTransaction(token.relayerUrl, proof, memo, TxType.Withdraw));
+      if (i != proofs.length - 1) {
+        // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
+        // remove this delay after adding multi-tx support to relayer
+        await new Promise(function(resolve){ setTimeout(resolve, 60000);});
+      }
+    }
+    
+    return jobIds;
   }
 
   public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {
