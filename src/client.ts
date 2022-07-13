@@ -9,6 +9,8 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
+const MIN_TX_AMOUNT = BigInt(1);
+
 export interface RelayerInfo {
   root: string;
   deltaIndex: string;
@@ -125,25 +127,30 @@ export class ZkBobClient {
     return state.account.generateAddress();
   }
 
-  // TODO: generalize wei/gwei
   public async deposit(
     tokenAddress: string,
-    amountWei: string,
+    amountGwei: string,
     sign: (data: string) => Promise<string>,
     fromAddress: string | null = null,
-    fee: string = '0',
+    feeGwei: string = '0',
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
-    if (BigInt(amountWei) < state.denominator) {
-      throw new Error('Value is too small');
+    const bnAmountGwei = BigInt(amountGwei);
+    const bnFeeGwei = BigInt(feeGwei);
+
+    if (bnAmountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
     await this.updateState(tokenAddress);
 
-    const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    let txData = await state.account.createDeposit({ amount: amountGwei, fee });
+    //const amountGwei = (BigInt(amountWei) / state.denominator).toString();
+    let txData = await state.account.createDeposit({
+      amount: (bnAmountGwei + bnFeeGwei).toString(),
+      fee: feeGwei
+    });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -175,26 +182,33 @@ export class ZkBobClient {
 
   public async depositPermittable(
     tokenAddress: string,
-    amountWei: string,
+    amountGwei: string,
     signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
     fromAddress: string | null = null,
-    fee: string = '0',
+    feeGwei: string = '0',
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
-    if (BigInt(amountWei) < state.denominator) {
-      throw new Error('Value is too small');
+    const bnAmountGwei = BigInt(amountGwei);
+    const bnFeeGwei = BigInt(feeGwei);
+
+    if (bnAmountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
     await this.updateState(tokenAddress);
 
-    const amountGwei = (BigInt(amountWei) / state.denominator).toString();
     let txData;
     if (fromAddress) {
       const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
       const holder = hexToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({ amount: amountGwei, fee, deadline: String(deadline), holder});
+      txData = await state.account.createDepositPermittable({ 
+        amount: (bnAmountGwei + bnFeeGwei).toString(),
+        fee: feeGwei,
+        deadline: String(deadline),
+        holder
+      });
 
       const startProofDate = Date.now();
       const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -207,7 +221,7 @@ export class ZkBobClient {
       }
 
       // permittable deposit signature should be calculated for the typed data
-      const value = BigInt(amountWei) + BigInt(fee);
+      const value = (bnAmountGwei + bnFeeGwei) * state.denominator;
       let signature = truncateHexPrefix(await signTypedData(deadline, value));
 
       if (this.config.network.isSignatureCompact()) {
@@ -221,31 +235,34 @@ export class ZkBobClient {
     }
   }
 
-
-  public async transfer(tokenAddress: string, outsWei: Output[], fee: string = '0'): Promise<string> {
+  // This method will fail when insufficent input notes (constants::IN) for transfer
+  public async transferSingle(tokenAddress: string, outsGwei: Output[], feeGwei: string = '0'): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
+    const bnFeeGwei = BigInt(feeGwei);
+
     const txType = TxType.Transfer;
-    const outGwei = outsWei.map(({ to, amount }) => {
+    const outGwei = outsGwei.map(({ to, amount }) => {
       if (!validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
-      const bnAmount = BigInt(amount);
-      if (bnAmount < state.denominator) {
-        throw new Error('One of the values is too small');
+      const bnAmountGwei = BigInt(amount);
+
+      if (bnAmountGwei < MIN_TX_AMOUNT) {
+        throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
       }
 
       return {
         to,
-        amount: (bnAmount / state.denominator).toString(),
+        amount: (bnAmountGwei + bnFeeGwei).toString(),
       }
     });
 
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee });
+    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -260,7 +277,8 @@ export class ZkBobClient {
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
-  public async transferMulti(tokenAddress: string, to: string, amountWei: string, fee: string = '0'): Promise<string[]> {
+  // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
+  public async transferMulti(tokenAddress: string, to: string, amountGwei: string, feeGwei: string = '0'): Promise<string[]> {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
@@ -268,11 +286,13 @@ export class ZkBobClient {
       throw new Error('Invalid address. Expected a shielded address.');
     }
 
-    if (BigInt(amountWei) < state.denominator) {
-      throw new Error('Transfer amount is too small');
+    const bnAmountGwei = BigInt(amountGwei);
+
+    if (bnAmountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Transfer amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
-    const txParts = await this.getTransactionParts(tokenAddress, amountWei, fee);
+    const txParts = await this.getTransactionParts(tokenAddress, amountGwei, feeGwei);
 
     if (txParts.length == 0) {
       throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
@@ -280,8 +300,8 @@ export class ZkBobClient {
 
     const transfers = txParts.map(({amount, fee, accountLimit}) => {
       const oneTransfer: ITransferData = {
-        outputs: [{to, amount: amount.toString()}],
-        fee: fee.toString()
+        outputs: [{to, amount: (amount + fee).toString()}],
+        fee: fee.toString(),
       };
 
       return oneTransfer;
@@ -315,12 +335,15 @@ export class ZkBobClient {
     return jobIds;
   }
 
-  public async withdraw(tokenAddress: string, address: string, amountWei: string, fee: string = '0'): Promise<string> {
+  public async withdraw(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
-    if (BigInt(amountWei) < state.denominator) {
-      throw new Error('Value is too small');
+    const bnAmountGwei = BigInt(amountGwei);
+    const bnFeeGwei = BigInt(feeGwei);
+
+    if (bnAmountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
     await this.updateState(tokenAddress);
@@ -328,8 +351,13 @@ export class ZkBobClient {
     const txType = TxType.Withdraw;
     const addressBin = hexToBuf(address);
 
-    const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
+    const txData = await state.account.createWithdraw({
+      amount: (bnAmountGwei + bnFeeGwei).toString(),
+      to: addressBin,
+      fee: feeGwei,
+      native_amount: '0',
+      energy_amount: '0'
+    });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -344,7 +372,7 @@ export class ZkBobClient {
     return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
   }
 
-  public async getTransactionParts(tokenAddress: string, amountWei: string, fee: string): Promise<Array<TxAmount>> {
+  public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
     await this.updateState(tokenAddress);
 
@@ -353,11 +381,11 @@ export class ZkBobClient {
     const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
 
-    let denomFee = BigInt(fee) / state.denominator;
-    let remainAmount = BigInt(amountWei) / state.denominator;
+    let bnFeeGwei = BigInt(feeGwei);
+    let remainAmount = BigInt(amountGwei);
 
-    if (accountBalance >= remainAmount + denomFee) {
-      result.push({amount: remainAmount, fee: denomFee, accountLimit: BigInt(0)});
+    if (accountBalance >= remainAmount + bnFeeGwei) {
+      result.push({amount: remainAmount, fee: bnFeeGwei, accountLimit: BigInt(0)});
     } else {
       let notesParts: Array<bigint> = [];
       let curPart = BigInt(0);
@@ -380,17 +408,17 @@ export class ZkBobClient {
 
       for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
         oneTxPart += notesParts[i];
-        if (oneTxPart - denomFee > remainAmount) {
-          oneTxPart = remainAmount + denomFee;
+        if (oneTxPart - bnFeeGwei > remainAmount) {
+          oneTxPart = remainAmount + bnFeeGwei;
         }
 
-        if(oneTxPart < denomFee) {
+        if(oneTxPart < bnFeeGwei) {
           break;
         }
 
-        result.push({amount: oneTxPart - denomFee, fee: denomFee, accountLimit: BigInt(0)});
+        result.push({amount: oneTxPart - bnFeeGwei, fee: bnFeeGwei, accountLimit: BigInt(0)});
 
-        remainAmount -= (oneTxPart - denomFee);
+        remainAmount -= (oneTxPart - bnFeeGwei);
         oneTxPart = BigInt(0);
       }
 
