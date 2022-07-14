@@ -336,7 +336,7 @@ export class HistoryStorage {
                         const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
                         const depositHolderAddr = await this.web3.eth.accounts.recover(nullifier, fullSig);
 
-                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount - feeAmount, feeAmount, txHash, pending);
+                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash, pending);
                         allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                         
                       } else {
@@ -382,7 +382,7 @@ export class HistoryStorage {
                       // withdrawal transaction (destination address in the memoblock)
                       const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
 
-                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, (-tx.tokenAmount - feeAmount), feeAmount, txHash, pending);
+                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, -(tx.tokenAmount + feeAmount), feeAmount, txHash, pending);
                       allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                     }
 
