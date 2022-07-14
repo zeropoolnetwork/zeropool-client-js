@@ -24,14 +24,16 @@ export class ZeroPoolLibState {
  * @returns stuff needed for creating a ZeroPoolState
  */
 export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
-    const isMt = await threads();
+    // Safari doesn't support spawning Workers from inside other Workers yet.
+    const isSafari = navigator.userAgent.indexOf("Safari") > -1;
+    const isMt = await threads() && !isSafari;
     let wasmPath = wasmStPath;
     if (isMt) {
         console.log('Using multi-threaded version');
         zp = zpMt;
         wasmPath = wasmMtPath;
     } else {
-        console.log('Using single-threaded version');
+        console.log('Using single-threaded version. Proof generation will be significantly slower.');
     }
 
     const fileCache = await FileCache.init();
