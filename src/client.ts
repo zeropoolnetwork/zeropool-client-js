@@ -334,7 +334,7 @@ export class ZkBobClient {
       if (i != proofs.length - 1) {
         // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
         // remove this delay after adding multi-tx support to relayer
-        await new Promise(function(resolve){ setTimeout(resolve, 60000);});
+        //await new Promise(function(resolve){ setTimeout(resolve, 60000);});
       }
     }
     
@@ -435,7 +435,7 @@ export class ZkBobClient {
       if (i != proofs.length - 1) {
         // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
         // remove this delay after adding multi-tx support to relayer
-        await new Promise(function(resolve){ setTimeout(resolve, 60000);});
+        //await new Promise(function(resolve){ setTimeout(resolve, 60000);});
       }
     }
     
