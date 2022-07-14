@@ -258,7 +258,7 @@ export class ZkBobClient {
 
       return {
         to,
-        amount: (bnAmountGwei + bnFeeGwei).toString(),
+        amount: bnAmountGwei.toString(),
       }
     });
 
@@ -300,7 +300,7 @@ export class ZkBobClient {
 
     const transfers = txParts.map(({amount, fee, accountLimit}) => {
       const oneTransfer: ITransferData = {
-        outputs: [{to, amount: (amount + fee).toString()}],
+        outputs: [{to, amount: amount.toString()}],
         fee: fee.toString(),
       };
 
@@ -548,19 +548,18 @@ export class ZkBobClient {
         switch (oneRecord.type) {
           case HistoryTransactionType.Deposit:
           case HistoryTransactionType.TransferIn: {
+            // we don't spend fee from the shielded balance in case of deposit or input transfer
             pendingDelta += oneRecord.amount;
             break;
           }
           case HistoryTransactionType.Withdrawal:
           case HistoryTransactionType.TransferOut: {
-            pendingDelta -= oneRecord.amount;
+            pendingDelta -= (oneRecord.amount + oneRecord.fee);
             break;
           }
 
           default: break;
         }
-
-        pendingDelta -= oneRecord.fee;
       }
     }
 
