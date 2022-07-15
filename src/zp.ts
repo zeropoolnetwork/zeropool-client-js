@@ -25,7 +25,7 @@ export class ZeroPoolLibState {
  */
 export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
     // Safari doesn't support spawning Workers from inside other Workers yet.
-    const isSafari = navigator.userAgent.indexOf("Safari") > -1;
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     const isMt = await threads() && !isSafari;
     let wasmPath = wasmStPath;
     if (isMt) {
