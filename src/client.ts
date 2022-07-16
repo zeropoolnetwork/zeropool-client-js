@@ -9,7 +9,7 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(1);
+const MIN_TX_AMOUNT = BigInt(10000000);
 
 export interface RelayerInfo {
   root: string;
