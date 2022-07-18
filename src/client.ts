@@ -115,6 +115,7 @@ export class ZkBobClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
+  private relayerFee: bigint | undefined; // in Gwei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZkBobClient> {
@@ -124,6 +125,8 @@ export class ZkBobClient {
     client.snarkParams = config.snarkParams;
     client.tokens = config.tokens;
     client.config = config;
+
+    client.relayerFee = undefined;
 
     let networkName = config.networkName;
     if (!networkName) {
@@ -442,14 +445,23 @@ export class ZkBobClient {
     return jobId;
   }
 
-  public async feeEstimate(tokenAddress: string, amountGwei: string, txType: TxType): Promise<FeeAmount> {
-    const relayer = await Promise.resolve(TX_FEE);
+  private async getRelayerFee(tokenAddress: string): Promise<bigint> {
+    if (this.relayerFee === undefined) {
+      // TODO: fetch actual fee from the relayer
+      this.relayerFee = TX_FEE;
+    }
+
+    return this.relayerFee;
+  }
+
+  public async feeEstimate(tokenAddress: string, amountGwei: string, txType: TxType, updateState: boolean = true): Promise<FeeAmount> {
+    const relayer = await this.getRelayerFee(tokenAddress);
     const l1 = BigInt(0);
     let txCnt = 1;
     let totalPerTx = relayer + l1;
     let total = totalPerTx;
     if (txType === TxType.Transfer || txType === TxType.Withdraw) {
-      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx.toString());
+      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx.toString(), updateState);
       if (parts.length == 0) {
         throw new Error(`insufficient funds`);
       }
@@ -460,9 +472,11 @@ export class ZkBobClient {
     return {total, totalPerTx, txCnt, relayer, l1};
   }
 
-  public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {
+  public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string, updateState: boolean = true): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
-    await this.updateState(tokenAddress);
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
 
     let result: Array<TxAmount> = [];
 
@@ -480,7 +494,7 @@ export class ZkBobClient {
       for(let i = 0; i < usableNotes.length; i++) {
         const curNote = usableNotes[i][1];
 
-        if (i > 0 && i%3 == 0) {
+        if (i > 0 && i % CONSTANTS.IN == 0) {
           notesParts.push(curPart);
           curPart = BigInt(0);
         }
@@ -516,6 +530,32 @@ export class ZkBobClient {
     }
 
     return result;
+  }
+
+  public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<string> {
+    const state = this.zpStates[tokenAddress];
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
+
+    let result: bigint;
+
+    const txFee = await this.getRelayerFee(tokenAddress);
+    const usableNotes = state.usableNotes();
+    const accountBalance = BigInt(state.accountBalance());
+    let notesBalance = BigInt(0);
+
+    let txCnt = 1;
+    if (usableNotes.length > CONSTANTS.IN) {
+      txCnt += Math.ceil((usableNotes.length - CONSTANTS.IN) / CONSTANTS.IN);
+    }
+
+    for(let i = 0; i < usableNotes.length; i++) {
+      const curNote = usableNotes[i][1];
+      notesBalance += BigInt(curNote.b)
+    }
+
+    return (accountBalance + notesBalance - txFee * BigInt(txCnt)).toString();
   }
 
   // return transaction(s) hash(es) on success or throw an error

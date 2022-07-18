@@ -42,7 +42,7 @@ export class ZkBobState {
     return this.account.accountBalance();
   }
 
-  public usableNotes(): any {
+  public usableNotes(): any[] {
     return this.account.getUsableNotes();
   }
 
