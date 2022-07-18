@@ -9,7 +9,7 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(1);
+const MIN_TX_AMOUNT = BigInt(10000000);
 
 export interface RelayerInfo {
   root: string;
@@ -27,6 +27,13 @@ export interface TxAmount { // all values are in wei
   fee: bigint;  // fee 
   accountLimit: bigint;  // minimum account remainder after transaction
                          // (used for complex multi-tx transfers, default: 0)
+}
+
+export interface TxToRelayer {
+  txType: TxType;
+  memo: string;
+  proof: Proof;
+  depositSignature?: string
 }
 
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
@@ -48,9 +55,9 @@ async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, l
 }
 
 // returns transaction job ID
-async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, txType: TxType, depositSignature?: string): Promise<string> {
-  const url = new URL('/transaction', relayerUrl);
-  const res = await fetch(url.toString(), { method: 'POST', body: JSON.stringify({ proof, memo, txType, depositSignature }) });
+async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
+  const url = new URL('/sendTransactions', relayerUrl);
+  const res = await fetch(url.toString(), { method: 'POST', body: JSON.stringify(txs) });
 
   if (!res.ok) {
     const body = await res.json();
@@ -61,7 +68,7 @@ async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, t
   return json.jobId;
 }
 
-async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string } | null> {
+async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string[] } | null> {
   const url = new URL(`/job/${id}`, relayerUrl);
   const res = await (await fetch(url.toString())).json();
 
@@ -177,7 +184,9 @@ export class ZkBobClient {
       fullSignature = toCompactSignature(fullSignature);
     }
 
-    return await sendTransaction(token.relayerUrl, txProof, txData.memo, TxType.Deposit, fullSignature);
+    let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
+
+    return await sendTransactions(token.relayerUrl, [tx]);
   }
 
   public async depositPermittable(
@@ -228,7 +237,8 @@ export class ZkBobClient {
         signature = toCompactSignature(signature);
       }
 
-      return await sendTransaction(token.relayerUrl, txProof, txData.memo, TxType.BridgeDeposit, signature);
+      let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
+      return await sendTransactions(token.relayerUrl, [tx]);
 
     } else {
       throw new Error('You must provide fromAddress for bridge deposit transaction ');
@@ -244,7 +254,6 @@ export class ZkBobClient {
 
     const bnFeeGwei = BigInt(feeGwei);
 
-    const txType = TxType.Transfer;
     const outGwei = outsGwei.map(({ to, amount }) => {
       if (!validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
@@ -274,11 +283,12 @@ export class ZkBobClient {
       throw new Error('invalid tx proof');
     }
 
-    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
+    return await sendTransactions(token.relayerUrl, [tx]);
   }
 
   // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
-  public async transferMulti(tokenAddress: string, to: string, amountGwei: string, feeGwei: string = '0'): Promise<string[]> {
+  public async transferMulti(tokenAddress: string, to: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
@@ -310,7 +320,7 @@ export class ZkBobClient {
     const txsData = await state.account.createMultiTransfer(transfers);
 
 
-    const txProofPromises = txsData.map(async (transfer) => {
+    const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
       const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
       const proofTime = (Date.now() - startProofDate) / 1000;
@@ -321,24 +331,14 @@ export class ZkBobClient {
         throw new Error('invalid tx proof');
       }
 
-      return {memo: transfer.memo, proof: txProof};
-      //return sendTransaction(token.relayerUrl, txProof, transfer.memo, TxType.Transfer);
+      return {memo: transfer.memo, proof: txProof, txType: TxType.Transfer};
     });
 
-    const proofs = await Promise.all(txProofPromises);
+    const txs = await Promise.all(txPromises);
 
-    let jobIds: string[] = [];
-    for (let i = 0; i<proofs.length; i++) {
-      let {memo, proof} = proofs[i];
-      jobIds.push(await sendTransaction(token.relayerUrl, proof, memo, TxType.Transfer));
-      if (i != proofs.length - 1) {
-        // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
-        // remove this delay after adding multi-tx support to relayer
-        //await new Promise(function(resolve){ setTimeout(resolve, 60000);});
-      }
-    }
+    let jobId = await sendTransactions(token.relayerUrl, txs);
     
-    return jobIds;
+    return jobId;
   }
 
   public async withdrawSingle(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
@@ -375,10 +375,11 @@ export class ZkBobClient {
       throw new Error('invalid tx proof');
     }
 
-    return await sendTransaction(token.relayerUrl, txProof, txData.memo, txType);
+    let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
+    return await sendTransactions(token.relayerUrl, [tx]);
   }
 
-  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string[]> {
+  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -411,7 +412,7 @@ export class ZkBobClient {
 
     const txsData = await state.account.createMultiWithdraw(transfers);
 
-    const txProofPromises = txsData.map(async (transfer) => {
+    const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
       const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
       const proofTime = (Date.now() - startProofDate) / 1000;
@@ -422,24 +423,14 @@ export class ZkBobClient {
         throw new Error('invalid tx proof');
       }
 
-      return {memo: transfer.memo, proof: txProof};
-      //return sendTransaction(token.relayerUrl, txProof, transfer.memo, TxType.Transfer);
+      return {memo: transfer.memo, proof: txProof, txType: TxType.Withdraw};
     });
 
-    const proofs = await Promise.all(txProofPromises);
+    const txs = await Promise.all(txPromises);
 
-    let jobIds: string[] = [];
-    for (let i = 0; i<proofs.length; i++) {
-      let {memo, proof} = proofs[i];
-      jobIds.push(await sendTransaction(token.relayerUrl, proof, memo, TxType.Withdraw));
-      if (i != proofs.length - 1) {
-        // TODO: HARD workaround for multisending (relayer doesn't update optimistic index immediately)
-        // remove this delay after adding multi-tx support to relayer
-        //await new Promise(function(resolve){ setTimeout(resolve, 60000);});
-      }
-    }
+    let jobId = await sendTransactions(token.relayerUrl, txs);
     
-    return jobIds;
+    return jobId;
   }
 
   public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {
@@ -500,12 +491,12 @@ export class ZkBobClient {
     return result;
   }
 
-  // return transaction hash on success or throw an error
-  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string> {
+  // return transaction(s) hash(es) on success or throw an error
+  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
     const token = this.tokens[tokenAddress];
 
     const INTERVAL_MS = 1000;
-    let hash;
+    let hashes: string[];
     while (true) {
       const job = await getJob(token.relayerUrl, jobId);
 
@@ -515,20 +506,17 @@ export class ZkBobClient {
       } else if (job.state === 'failed') {
         throw new Error('Transaction [job ${jobId}] failed');
       } else if (job.state === 'completed') {
-        hash = job.txHash;
+        hashes = job.txHash;
         break;
       }
 
       await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
     }
 
-    console.info(`Transaction [job ${jobId}] successful: ${hash}`);
+    console.info(`Transaction [job ${jobId}] successful: ${hashes.join(", ")}`);
 
-    return hash;
+    return hashes;
   }
-
-  // TODO: Transaction list
-
 
   public async getTotalBalance(tokenAddress: string): Promise<string> {
     await this.updateState(tokenAddress);
