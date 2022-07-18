@@ -10,6 +10,7 @@ import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
+const TX_FEE = BigInt(10000000);
 
 export interface RelayerInfo {
   root: string;
@@ -22,7 +23,7 @@ export interface BatchResult {
   maxPendingIndex: number;
 }
 
-export interface TxAmount { // all values are in wei
+export interface TxAmount { // all values are in Gwei
   amount: bigint;  // tx amount (without fee)
   fee: bigint;  // fee 
   accountLimit: bigint;  // minimum account remainder after transaction
@@ -34,6 +35,14 @@ export interface TxToRelayer {
   memo: string;
   proof: Proof;
   depositSignature?: string
+}
+
+export interface FeeAmount { // all values are in Gwei
+  total: bigint;    // total fee
+  totalPerTx: bigint; // multitransfer case (== total for regular tx)
+  txCnt: number;      // multitransfer case (== 1 for regular tx)
+  relayer: bigint;  // relayer fee component
+  l1: bigint;       // L1 fee component
 }
 
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
@@ -431,6 +440,24 @@ export class ZkBobClient {
     let jobId = await sendTransactions(token.relayerUrl, txs);
     
     return jobId;
+  }
+
+  public async feeEstimate(tokenAddress: string, amountGwei: string, txType: TxType): Promise<FeeAmount> {
+    const relayer = await Promise.resolve(TX_FEE);
+    const l1 = BigInt(0);
+    let txCnt = 1;
+    let totalPerTx = relayer + l1;
+    let total = totalPerTx;
+    if (txType === TxType.Transfer || txType === TxType.Withdraw) {
+      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx.toString());
+      if (parts.length == 0) {
+        throw new Error(`insufficient funds`);
+      }
+
+      txCnt = parts.length;
+      total = totalPerTx * BigInt(txCnt);
+    }
+    return {total, totalPerTx, txCnt, relayer, l1};
   }
 
   public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {

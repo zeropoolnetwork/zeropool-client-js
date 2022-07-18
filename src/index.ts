@@ -6,6 +6,8 @@ import { FileCache } from './file-cache';
 
 export { ZkBobClient, TxAmount } from './client';
 
+export { TxType } from './tx';
+
 export { HistoryRecord, HistoryTransactionType } from './history'
 
 export class ZkBobLibState {
