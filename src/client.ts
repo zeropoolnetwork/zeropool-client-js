@@ -115,6 +115,7 @@ export class ZkBobClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
+  private relayerFee: bigint | undefined; // in Gwei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZkBobClient> {
@@ -124,6 +125,8 @@ export class ZkBobClient {
     client.snarkParams = config.snarkParams;
     client.tokens = config.tokens;
     client.config = config;
+
+    client.relayerFee = undefined;
 
     let networkName = config.networkName;
     if (!networkName) {
@@ -138,80 +141,152 @@ export class ZkBobClient {
     return client;
   }
 
+  public free(): void {
+    for (let state of Object.values(this.zpStates)) {
+      state.free();
+    }
+  }
+
+  // ------------------=========< Balances and History >=========-------------------
+  // | Quering shielded balance and history records                                |
+  // -------------------------------------------------------------------------------
+
+  // Pool contract using default denominator 10^9
+  // i.e. values less than 1 Gwei are supposed equals zero
+  // But this is deployable parameter so this method are using to retrieve it
+  public getDenominator(tokenAddress: string): bigint {
+    return this.zpStates[tokenAddress].denominator;
+  }
+
+  // Convert native pool amount to the base units
+  public shieldedAmountToWei(tokenAddress, amountGwei: bigint): bigint {
+    return amountGwei * this.zpStates[tokenAddress].denominator
+  }
+  
+  // Convert base units to the native pool amount
+  public weiToShieldedAmount(tokenAddress, amountWei: bigint): bigint {
+    return amountWei / this.zpStates[tokenAddress].denominator
+  }
+
+  // Get account + notes balance in Gwei
+  // [with optional state update]
+  public async getTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
+
+    return this.zpStates[tokenAddress].getTotalBalance();
+  }
+
+  // Get total balance with components: account and notes
+  // [with optional state update]
+  // Returns [total, account, note] in Gwei
+  public async getBalances(tokenAddress: string, updateState: boolean = true): Promise<[bigint, bigint, bigint]> {
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
+
+    return this.zpStates[tokenAddress].getBalances();
+  }
+
+  // Get total balance including transactions in optimistic state [in Gwei]
+  // There is no option to prevent state update here,
+  // because we should always monitor optimistic state
+  public async getOptimisticTotalBalance(tokenAddress: string): Promise<bigint> {
+    const state = this.zpStates[tokenAddress];
+
+    const confirmedBalance = await this.getTotalBalance(tokenAddress);
+    const historyRecords = await this.getAllHistory(tokenAddress);
+
+    let pendingDelta = BigInt(0);
+    for (const oneRecord of historyRecords) {
+      if (oneRecord.pending) {
+        switch (oneRecord.type) {
+          case HistoryTransactionType.Deposit:
+          case HistoryTransactionType.TransferIn: {
+            // we don't spend fee from the shielded balance in case of deposit or input transfer
+            pendingDelta += oneRecord.amount;
+            break;
+          }
+          case HistoryTransactionType.Withdrawal:
+          case HistoryTransactionType.TransferOut: {
+            pendingDelta -= (oneRecord.amount + oneRecord.fee);
+            break;
+          }
+
+          default: break;
+        }
+      }
+    }
+
+    return confirmedBalance + pendingDelta;
+  }
+
+  // Get history records
+  public async getAllHistory(tokenAddress: string, updateState: boolean = true): Promise<HistoryRecord[]> {
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
+
+    return await this.zpStates[tokenAddress].history.getAllHistory();
+  }
+
+  // ------------------=========< Service Routines >=========-------------------
+  // | Methods for creating and sending transactions in different modes        |
+  // ---------------------------------------------------------------------------
+
+  // Generate shielded address to receive funds
   public generateAddress(tokenAddress: string): string {
     const state = this.zpStates[tokenAddress];
     return state.account.generateAddress();
   }
 
-  public async deposit(
-    tokenAddress: string,
-    amountGwei: string,
-    sign: (data: string) => Promise<string>,
-    fromAddress: string | null = null,
-    feeGwei: string = '0',
-  ): Promise<string> {
+  // Waiting while relayer process the job
+  // return transaction(s) hash(es) on success or throw an error
+  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
     const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
 
-    const bnAmountGwei = BigInt(amountGwei);
-    const bnFeeGwei = BigInt(feeGwei);
+    const INTERVAL_MS = 1000;
+    let hashes: string[];
+    while (true) {
+      const job = await getJob(token.relayerUrl, jobId);
 
-    if (bnAmountGwei < MIN_TX_AMOUNT) {
-      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+      if (job === null) {
+        console.error(`Job ${jobId} not found.`);
+        throw new Error(`Job ${jobId} not found`);
+      } else if (job.state === 'failed') {
+        throw new Error(`Transaction [job ${jobId}] failed`);
+      } else if (job.state === 'completed') {
+        hashes = job.txHash;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
     }
 
-    await this.updateState(tokenAddress);
+    console.info(`Transaction [job ${jobId}] successful: ${hashes.join(", ")}`);
 
-    //const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    let txData = await state.account.createDeposit({
-      amount: (bnAmountGwei + bnFeeGwei).toString(),
-      fee: feeGwei
-    });
-
-    const startProofDate = Date.now();
-    const txProof = await this.worker.proveTx(txData.public, txData.secret);
-    const proofTime = (Date.now() - startProofDate) / 1000;
-    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
-
-    // regular deposit through approve allowance: sign transaction nullifier
-    let dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
-
-    // TODO: Sign fromAddress as well?
-    const signature = truncateHexPrefix(await sign(dataToSign));
-    let fullSignature = signature;
-    if (fromAddress) {
-      const addr = truncateHexPrefix(fromAddress);
-      fullSignature = addr + signature;
-    }
-
-    if (this.config.network.isSignatureCompact()) {
-      fullSignature = toCompactSignature(fullSignature);
-    }
-
-    let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
-
-    return await sendTransactions(token.relayerUrl, [tx]);
+    return hashes;
   }
 
+  // ------------------=========< Making Transactions >=========-------------------
+  // | Methods for creating and sending transactions in different modes           |
+  // ------------------------------------------------------------------------------
+
+  // Deposit based on permittable token scheme. User should sign typed data to allow
+  // contract receive his tokens
+  // Returns jobId from the relayer or throw an Error
   public async depositPermittable(
     tokenAddress: string,
-    amountGwei: string,
+    amountGwei: bigint,
     signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
     fromAddress: string | null = null,
-    feeGwei: string = '0',
+    feeGwei: bigint = BigInt(0),
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
-    const bnAmountGwei = BigInt(amountGwei);
-    const bnFeeGwei = BigInt(feeGwei);
-
-    if (bnAmountGwei < MIN_TX_AMOUNT) {
+    if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -222,8 +297,8 @@ export class ZkBobClient {
       const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
       const holder = hexToBuf(fromAddress);
       txData = await state.account.createDepositPermittable({ 
-        amount: (bnAmountGwei + bnFeeGwei).toString(),
-        fee: feeGwei,
+        amount: (amountGwei + feeGwei).toString(),
+        fee: feeGwei.toString(),
         deadline: String(deadline),
         holder
       });
@@ -239,7 +314,7 @@ export class ZkBobClient {
       }
 
       // permittable deposit signature should be calculated for the typed data
-      const value = (bnAmountGwei + bnFeeGwei) * state.denominator;
+      const value = (amountGwei + feeGwei) * state.denominator;
       let signature = truncateHexPrefix(await signTypedData(deadline, value));
 
       if (this.config.network.isSignatureCompact()) {
@@ -254,50 +329,10 @@ export class ZkBobClient {
     }
   }
 
-  // This method will fail when insufficent input notes (constants::IN) for transfer
-  public async transferSingle(tokenAddress: string, outsGwei: Output[], feeGwei: string = '0'): Promise<string> {
-    await this.updateState(tokenAddress);
-
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-
-    const bnFeeGwei = BigInt(feeGwei);
-
-    const outGwei = outsGwei.map(({ to, amount }) => {
-      if (!validateAddress(to)) {
-        throw new Error('Invalid address. Expected a shielded address.');
-      }
-
-      const bnAmountGwei = BigInt(amount);
-
-      if (bnAmountGwei < MIN_TX_AMOUNT) {
-        throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-      }
-
-      return {
-        to,
-        amount: bnAmountGwei.toString(),
-      }
-    });
-
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei });
-
-    const startProofDate = Date.now();
-    const txProof = await this.worker.proveTx(txData.public, txData.secret);
-    const proofTime = (Date.now() - startProofDate) / 1000;
-    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
-
-    let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
-    return await sendTransactions(token.relayerUrl, [tx]);
-  }
-
+  // Transfer shielded funds to the shielded address
   // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
-  public async transferMulti(tokenAddress: string, to: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
+  // // Returns jobId from the relayer or throw an Error
+  public async transferMulti(tokenAddress: string, to: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string> {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
@@ -305,9 +340,7 @@ export class ZkBobClient {
       throw new Error('Invalid address. Expected a shielded address.');
     }
 
-    const bnAmountGwei = BigInt(amountGwei);
-
-    if (bnAmountGwei < MIN_TX_AMOUNT) {
+    if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Transfer amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -327,7 +360,6 @@ export class ZkBobClient {
     });
 
     const txsData = await state.account.createMultiTransfer(transfers);
-
 
     const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
@@ -350,52 +382,15 @@ export class ZkBobClient {
     return jobId;
   }
 
-  public async withdrawSingle(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
+  // Withdraw shielded funds to the specified native chain address
+  // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
+  // feeGwei - fee per single transaction (request it with atomicTxFee method)
+  // Returns jobId from the relayer or throw an Error
+  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
-    const bnAmountGwei = BigInt(amountGwei);
-    const bnFeeGwei = BigInt(feeGwei);
-
-    if (bnAmountGwei < MIN_TX_AMOUNT) {
-      throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    await this.updateState(tokenAddress);
-
-    const txType = TxType.Withdraw;
-    const addressBin = hexToBuf(address);
-
-    const txData = await state.account.createWithdraw({
-      amount: (bnAmountGwei + bnFeeGwei).toString(),
-      to: addressBin,
-      fee: feeGwei,
-      native_amount: '0',
-      energy_amount: '0'
-    });
-
-    const startProofDate = Date.now();
-    const txProof = await this.worker.proveTx(txData.public, txData.secret);
-    const proofTime = (Date.now() - startProofDate) / 1000;
-    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-    
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
-
-    let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
-    return await sendTransactions(token.relayerUrl, [tx]);
-  }
-
-  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: string, feeGwei: string = '0'): Promise<string> {
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-
-    const bnAmountGwei = BigInt(amountGwei);
-    const bnFeeGwei = BigInt(feeGwei);
-
-    if (bnAmountGwei < MIN_TX_AMOUNT) {
+    if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -442,14 +437,164 @@ export class ZkBobClient {
     return jobId;
   }
 
-  public async feeEstimate(tokenAddress: string, amountGwei: string, txType: TxType): Promise<FeeAmount> {
-    const relayer = await Promise.resolve(TX_FEE);
+  // DEPRECATED. Please use depositPermittable method instead
+  // Deposit throught approval allowance
+  // User should approve allowance for contract address at least 
+  // (amountGwei + feeGwei) tokens before calling this method
+  // Returns jobId
+  public async deposit(
+    tokenAddress: string,
+    amountGwei: bigint,
+    sign: (data: string) => Promise<string>,
+    fromAddress: string | null = null,
+    feeGwei: bigint = BigInt(0),
+  ): Promise<string> {
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    if (amountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    await this.updateState(tokenAddress);
+
+    let txData = await state.account.createDeposit({
+      amount: (amountGwei + feeGwei).toString(),
+      fee: feeGwei.toString(),
+    });
+
+    const startProofDate = Date.now();
+    const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
+    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    if (!txValid) {
+      throw new Error('invalid tx proof');
+    }
+
+    // regular deposit through approve allowance: sign transaction nullifier
+    let dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+
+    // TODO: Sign fromAddress as well?
+    const signature = truncateHexPrefix(await sign(dataToSign));
+    let fullSignature = signature;
+    if (fromAddress) {
+      const addr = truncateHexPrefix(fromAddress);
+      fullSignature = addr + signature;
+    }
+
+    if (this.config.network.isSignatureCompact()) {
+      fullSignature = toCompactSignature(fullSignature);
+    }
+
+    let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
+
+    return await sendTransactions(token.relayerUrl, [tx]);
+  }
+
+  // DEPRECATED. Please use transferMulti method instead
+  // Simple transfer to the shielded address. Supports several output addresses
+  // This method will fail when insufficent input notes (constants::IN) for transfer
+  public async transferSingle(tokenAddress: string, outsGwei: Output[], feeGwei: bigint = BigInt(0)): Promise<string> {
+    await this.updateState(tokenAddress);
+
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    const outGwei = outsGwei.map(({ to, amount }) => {
+      if (!validateAddress(to)) {
+        throw new Error('Invalid address. Expected a shielded address.');
+      }
+
+      if (BigInt(amount) < MIN_TX_AMOUNT) {
+        throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+      }
+
+      return { to, amount };
+    });
+
+    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
+
+    const startProofDate = Date.now();
+    const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+
+    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    if (!txValid) {
+      throw new Error('invalid tx proof');
+    }
+
+    let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
+    return await sendTransactions(token.relayerUrl, [tx]);
+  }
+
+  // DEPRECATED. Please use withdrawMulti methos instead
+  // Simple withdraw to the native address
+  // This method will fail when insufficent input notes (constants::IN) for withdrawal
+  public async withdrawSingle(tokenAddress: string, address: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string> {
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    if (amountGwei < MIN_TX_AMOUNT) {
+      throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    await this.updateState(tokenAddress);
+
+    const txType = TxType.Withdraw;
+    const addressBin = hexToBuf(address);
+
+    const txData = await state.account.createWithdraw({
+      amount: (amountGwei + feeGwei).toString(),
+      to: addressBin,
+      fee: feeGwei.toString(),
+      native_amount: '0',
+      energy_amount: '0'
+    });
+
+    const startProofDate = Date.now();
+    const txProof = await this.worker.proveTx(txData.public, txData.secret);
+    const proofTime = (Date.now() - startProofDate) / 1000;
+    console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
+    
+    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    if (!txValid) {
+      throw new Error('invalid tx proof');
+    }
+
+    let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
+    return await sendTransactions(token.relayerUrl, [tx]);
+  }
+
+
+  // ------------------=========< Transaction configuration >=========-------------------
+  // | These methods includes fee estimation, multitransfer estimation and other inform |
+  // | functions.                                                                       |
+  // ------------------------------------------------------------------------------------
+
+  // Min trensaction fee in Gwei (e.g. deposit or single transfer)
+  // To estimate fee in the common case please use feeEstimate instead
+  public async atomicTxFee(tokenAddress: string): Promise<bigint> {
+    const relayer = await this.getRelayerFee(tokenAddress);
+    const l1 = BigInt(0);
+
+    return relayer + l1;
+  }
+
+  // Fee can depends on tx amount for multitransfer transactions,
+  // that's why you should specify it here for general case
+  // This method also supposed that in some cases fee can depends on tx amount in future
+  // Currently deposit isn't depends of amount
+  public async feeEstimate(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<FeeAmount> {
+    const relayer = await this.getRelayerFee(tokenAddress);
     const l1 = BigInt(0);
     let txCnt = 1;
     let totalPerTx = relayer + l1;
     let total = totalPerTx;
     if (txType === TxType.Transfer || txType === TxType.Withdraw) {
-      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx.toString());
+      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx, updateState);
       if (parts.length == 0) {
         throw new Error(`insufficient funds`);
       }
@@ -460,27 +605,72 @@ export class ZkBobClient {
     return {total, totalPerTx, txCnt, relayer, l1};
   }
 
-  public async getTransactionParts(tokenAddress: string, amountGwei: string, feeGwei: string): Promise<Array<TxAmount>> {
+  // Relayer fee component. Do not use it directly
+  private async getRelayerFee(tokenAddress: string): Promise<bigint> {
+    if (this.relayerFee === undefined) {
+      // TODO: fetch actual fee from the relayer
+      this.relayerFee = TX_FEE;
+    }
+
+    return this.relayerFee;
+  }
+
+  // Account + notes balance excluding fee needed to transfer or withdraw it
+  public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
     const state = this.zpStates[tokenAddress];
-    await this.updateState(tokenAddress);
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
+
+    let result: bigint;
+
+    const txFee = await this.atomicTxFee(tokenAddress);
+    const usableNotes = state.usableNotes();
+    const accountBalance = BigInt(state.accountBalance());
+    let notesBalance = BigInt(0);
+
+    let txCnt = 1;
+    if (usableNotes.length > CONSTANTS.IN) {
+      txCnt += Math.ceil((usableNotes.length - CONSTANTS.IN) / CONSTANTS.IN);
+    }
+
+    for(let i = 0; i < usableNotes.length; i++) {
+      const curNote = usableNotes[i][1];
+      notesBalance += BigInt(curNote.b)
+    }
+
+    let summ = accountBalance + notesBalance - txFee * BigInt(txCnt);
+    if (summ < 0) {
+      summ = BigInt(0);
+    }
+
+    return summ;
+  }
+
+  // Calculate multitransfer configuration for specified token amount and fee per transaction
+  // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
+  public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true): Promise<Array<TxAmount>> {
+    const state = this.zpStates[tokenAddress];
+    if (updateState) {
+      await this.updateState(tokenAddress);
+    }
 
     let result: Array<TxAmount> = [];
 
     const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
 
-    let bnFeeGwei = BigInt(feeGwei);
-    let remainAmount = BigInt(amountGwei);
+    let remainAmount = amountGwei;
 
-    if (accountBalance >= remainAmount + bnFeeGwei) {
-      result.push({amount: remainAmount, fee: bnFeeGwei, accountLimit: BigInt(0)});
+    if (accountBalance >= remainAmount + feeGwei) {
+      result.push({amount: remainAmount, fee: feeGwei, accountLimit: BigInt(0)});
     } else {
       let notesParts: Array<bigint> = [];
       let curPart = BigInt(0);
       for(let i = 0; i < usableNotes.length; i++) {
         const curNote = usableNotes[i][1];
 
-        if (i > 0 && i%3 == 0) {
+        if (i > 0 && i % CONSTANTS.IN == 0) {
           notesParts.push(curPart);
           curPart = BigInt(0);
         }
@@ -496,17 +686,17 @@ export class ZkBobClient {
 
       for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
         oneTxPart += notesParts[i];
-        if (oneTxPart - bnFeeGwei > remainAmount) {
-          oneTxPart = remainAmount + bnFeeGwei;
+        if (oneTxPart - feeGwei > remainAmount) {
+          oneTxPart = remainAmount + feeGwei;
         }
 
-        if(oneTxPart < bnFeeGwei) {
+        if(oneTxPart < feeGwei || oneTxPart < MIN_TX_AMOUNT) {
           break;
         }
 
-        result.push({amount: oneTxPart - bnFeeGwei, fee: bnFeeGwei, accountLimit: BigInt(0)});
+        result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
 
-        remainAmount -= (oneTxPart - bnFeeGwei);
+        remainAmount -= (oneTxPart - feeGwei);
         oneTxPart = BigInt(0);
       }
 
@@ -518,92 +708,17 @@ export class ZkBobClient {
     return result;
   }
 
-  // return transaction(s) hash(es) on success or throw an error
-  public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
-    const token = this.tokens[tokenAddress];
+  // ------------------=========< State Processing >=========-------------------
+  // | Updating and monitoring state                                            |
+  // ----------------------------------------------------------------------------
 
-    const INTERVAL_MS = 1000;
-    let hashes: string[];
-    while (true) {
-      const job = await getJob(token.relayerUrl, jobId);
-
-      if (job === null) {
-        console.error(`Job ${jobId} not found.`);
-        throw new Error('Job ${jobId} not found');
-      } else if (job.state === 'failed') {
-        throw new Error('Transaction [job ${jobId}] failed');
-      } else if (job.state === 'completed') {
-        hashes = job.txHash;
-        break;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
-    }
-
-    console.info(`Transaction [job ${jobId}] successful: ${hashes.join(", ")}`);
-
-    return hashes;
-  }
-
-  public async getTotalBalance(tokenAddress: string): Promise<string> {
-    await this.updateState(tokenAddress);
-
-    return this.zpStates[tokenAddress].getTotalBalance();
-  }
-
-  public async getOptimisticTotalBalance(tokenAddress: string): Promise<string> {
-    const state = this.zpStates[tokenAddress];
-
-    const confirmedBalance = await this.getTotalBalance(tokenAddress);
-    const historyRecords = await this.getAllHistory(tokenAddress);
-
-    let pendingDelta = BigInt(0);
-    for (const oneRecord of historyRecords) {
-      if (oneRecord.pending) {
-        switch (oneRecord.type) {
-          case HistoryTransactionType.Deposit:
-          case HistoryTransactionType.TransferIn: {
-            // we don't spend fee from the shielded balance in case of deposit or input transfer
-            pendingDelta += oneRecord.amount;
-            break;
-          }
-          case HistoryTransactionType.Withdrawal:
-          case HistoryTransactionType.TransferOut: {
-            pendingDelta -= (oneRecord.amount + oneRecord.fee);
-            break;
-          }
-
-          default: break;
-        }
-      }
-    }
-
-    return (BigInt(confirmedBalance) + (pendingDelta * state.denominator)).toString();
-  }
-
-  /**
-   * @returns [total, account, note]
-   */
-  public async getBalances(tokenAddress: string): Promise<[string, string, string]> {
-    await this.updateState(tokenAddress);
-
-    return this.zpStates[tokenAddress].getBalances();
-  }
-
-  public async rawState(tokenAddress: string): Promise<any> {
-    return await this.zpStates[tokenAddress].rawState();
-  }
-  
-  public async getAllHistory(tokenAddress: string): Promise<HistoryRecord[]> {
-    await this.updateState(tokenAddress);
-
-    return await this.zpStates[tokenAddress].history.getAllHistory();
-  }
-
+  // The library can't make any transfers when there are outcoming
+  // transactions in the optimistic state
   public async isReadyToTransact(tokenAddress: string): Promise<boolean> {
     return await this.updateState(tokenAddress);
   }
 
+  // Wait while state becomes ready to make new transactions
   public async waitReadyToTransact(tokenAddress: string): Promise<boolean> {
     const token = this.tokens[tokenAddress];
 
@@ -628,10 +743,19 @@ export class ZkBobClient {
     return true;
   }
 
+  // Getting array of accounts and notes for the current account
+  public async rawState(tokenAddress: string): Promise<any> {
+    return await this.zpStates[tokenAddress].rawState();
+  }
+  
+
+  // TODO: implement correct state cleaning
   public async cleanState(tokenAddress: string): Promise<void> {
     await this.zpStates[tokenAddress].clean();
   }
 
+  // Request the latest state from the relayer
+  // Returns isReadyToTransact flag
   public async updateState(tokenAddress: string): Promise<boolean> {
     if (this.updateStatePromise == undefined) {
       this.updateStatePromise = this.updateStateOptimisticWorker(tokenAddress).finally(() => {
@@ -647,7 +771,7 @@ export class ZkBobClient {
   // ---===< TODO >===---
   // The optimistic state currently processed only in the client library
   // Wasm package holds only the mined transactions
-  // Currently it's juat a workaround
+  // Currently it's just a workaround
   private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
     const BATCH_SIZE = 10000;
@@ -796,12 +920,6 @@ export class ZkBobClient {
 
     if (startIndex < endIndex) {
       console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${endIndex - OUTPLUSONE})`);
-    }
-  }
-
-  public free(): void {
-    for (let state of Object.values(this.zpStates)) {
-      state.free();
     }
   }
 }

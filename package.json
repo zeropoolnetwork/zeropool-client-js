@@ -1,6 +1,6 @@
 {
   "name": "zkbob-client-js",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "zkBob integration library",
   "repository": "git@github.com:zkBob/libzkbob-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -14,8 +14,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "build": "rm -rf lib/ && npx tsc && webpack --config webpack.worker.conf.js",
-    "clean": "rm -rf lib/",
-    "publish": "npm publish"
+    "clean": "rm -rf lib/"
   },
   "dependencies": {
     "comlink": "^4.3.1",
