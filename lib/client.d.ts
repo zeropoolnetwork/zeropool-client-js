@@ -40,7 +40,7 @@ export declare class ZeropoolClient {
      * @param isBridge
      * @returns transaction hash
      */
-    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress: string | null | undefined, fee: string | undefined, isBridge: boolean | undefined, outsWei: Output[]): Promise<string>;
+    deposit(tokenAddress: string, amountWei: string, sign: (data: string) => Promise<string>, fromAddress?: string | null, fee?: string, isBridge?: boolean, outsWei?: Output[]): Promise<string>;
     /**
      * Create and send a transfer transaction to the relayer.
      * @param tokenAddress address of the token smart contract
