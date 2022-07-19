@@ -132,7 +132,7 @@ export class ZeropoolClient {
     fromAddress: string | null = null,
     fee: string = '0',
     isBridge: boolean = false,
-    outsWei: Output[],
+    outsWei: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
