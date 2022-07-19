@@ -26,20 +26,23 @@ export class ZkBobState {
     return zpState;
   }
 
-  public getTotalBalance(): string {
-    return (BigInt(this.account.totalBalance()) * this.denominator).toString();
+  // in Gwei
+  public getTotalBalance(): bigint {
+    return BigInt(this.account.totalBalance());
   }
 
-  public getBalances(): [string, string, string] {
-    const total = BigInt(this.account.totalBalance()) * this.denominator;
-    const acc = BigInt(this.account.accountBalance()) * this.denominator;
-    const note = BigInt(this.account.noteBalance()) * this.denominator;
+  // in Gwei
+  public getBalances(): [bigint, bigint, bigint] {
+    const total = BigInt(this.account.totalBalance());
+    const acc = BigInt(this.account.accountBalance());
+    const note = BigInt(this.account.noteBalance());
 
-    return [total.toString(), acc.toString(), note.toString()];
+    return [total, acc, note];
   }
 
-  public accountBalance(): string {
-    return this.account.accountBalance();
+  // in Gwei
+  public accountBalance(): bigint {
+    return BigInt(this.account.accountBalance());
   }
 
   public usableNotes(): any[] {
@@ -50,6 +53,7 @@ export class ZkBobState {
     return this.account.getWholeState();
   }
 
+  // TODO: implement thiss method
   public async clean(): Promise<void> {
     //await this.account.cleanState();
     await this.history.cleanHistory();
