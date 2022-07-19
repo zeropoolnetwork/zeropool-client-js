@@ -25,6 +25,16 @@ async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: numb
   return res;
 }
 
+
+async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
+  const url = new URL(`/transactions/v2`, relayerUrl);
+  url.searchParams.set('limit', limit.toString());
+  url.searchParams.set('offset', offset.toString());
+  const res = await (await fetch(url.toString())).json();
+
+  return res;
+}
+
 // returns transaction job ID
 async function sendTransaction(relayerUrl: string, proof: Proof, memo: string, txType: TxType, depositSignature?: string): Promise<string> {
   const url = new URL('/transaction', relayerUrl);
@@ -393,7 +403,7 @@ export class ZeropoolClient {
 
             // try to convert history on the fly
             //let hist = convertToHistory(myMemo, txHash);
-            //historyPromises.push(hist);
+            //historyPromises.push(hist);d
           }
         }
 
@@ -428,7 +438,7 @@ export class ZeropoolClient {
 
   private async updateStateNewWorker(tokenAddress: string): Promise<void> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
-    const BATCH_SIZE = 100;
+    const BATCH_SIZE = 1000;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
@@ -447,7 +457,7 @@ export class ZeropoolClient {
       let batches: Promise<number>[] = [];
 
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-        let oneBatch = fetchTransactions(token.relayerUrl, BigInt(i), BATCH_SIZE).then( txs => {
+        let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then(txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
           for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
             const tx = txs[txIdx];
@@ -456,7 +466,7 @@ export class ZeropoolClient {
             
             // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
             // 1. Extract memo block
-            const memo = tx.slice(128); // Skip commitment and txHash
+            const memo = tx.slice(129); // Skip mined flag, txHash and commitment
 
             // 2. Get all hashes from the memo
             const hashes = parseHashes(memo);
