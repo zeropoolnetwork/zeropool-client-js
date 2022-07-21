@@ -347,93 +347,12 @@ export class ZeropoolClient {
     await this.updateStatePromise;
   }
 
-  // TODO: Verify the information sent by the relayer!
-  private async updateStateWorker(tokenAddress: string): Promise<void> {
-    const OUTPLUSONE = CONSTANTS.OUT + 1;
-    const BATCH_SIZE = 100;
+  private getLatestMinedIndex(tokenAddress: string): number {
+    return Number(localStorage.getItem(`zp.${tokenAddress}.latestMinedIndex`) || '0');
+  }
 
-    const zpState = this.zpStates[tokenAddress];
-    const token = this.tokens[tokenAddress];
-
-    const startIndex = Number(zpState.account.nextTreeIndex());
-    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
-
-    if (nextIndex > startIndex) {
-      const startTime = Date.now();
-      
-      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
-
-      let curBatch = 0;
-      let isLastBatch = false;
-      //let historyPromises: Promise<HistoryRecordIdx[]>[] = [];
-      do {
-        const txs = (await fetchTransactions(token.relayerUrl, BigInt(startIndex + curBatch * BATCH_SIZE * OUTPLUSONE), BATCH_SIZE))
-          .filter((val) => !!val);
-
-        // TODO: Error handling 
-
-        if (txs.length < BATCH_SIZE) {
-          isLastBatch = true;
-        }
-
-        for (let i = 0; i < txs.length; ++i) {
-          const tx = txs[i];
-
-          if (!tx || tx.length < 128) {
-            continue;
-          }
-
-
-          // Get the first leaf index in the tree
-          const memo_idx = startIndex + (curBatch * BATCH_SIZE + i) * OUTPLUSONE;
-          
-          // tx structure from relayer: commitment(32 bytes) + txHash(32 bytes) + memo
-          // 1. Extract memo block
-          const memo = tx.slice(128); // Skip commitment and txHash
-
-          // 2. Get all hashes from the memo
-          const hashes = parseHashes(memo);
-
-          // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
-          let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
-          if (myMemo) {
-            // if memo block corresponds to the our account - save it to restore history
-            myMemo.txHash = '0x' + tx.substr(64, 64);
-            zpState.history.saveDecryptedMemo(myMemo);
-
-            // try to convert history on the fly
-            //let hist = convertToHistory(myMemo, txHash);
-            //historyPromises.push(hist);d
-          }
-        }
-
-        ++curBatch;
-
-      } while (!isLastBatch);
-
-      const msElapsed = Date.now() - startTime;
-      const txCount = (nextIndex - startIndex) / 128;
-      const avgSpeed = msElapsed / txCount
-
-      console.log(`Sync finished in ${msElapsed / 1000} sec | ${txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
-
-      /*let historyRedords = await Promise.all(historyPromises);
-      for (let oneSet of historyRedords) {
-        for (let oneRec of oneSet) {
-          console.log(`History record @${oneRec.index} has been created`);
-          zpState.history.put(oneRec.index, oneRec.record);
-        }
-      }
-      console.log(`History has been synced`);*/
-
-
-      // Pass the obtained data to the history resolver
-      // Do not wait for finishing (it's not important for making transactions)
-      //this.updateHistory(decryptedMemos);
-
-    } else {
-      console.log(`Local state is up to date @${startIndex}...`);
-    }
+  private setLatestMinedIndex(tokenAddress: string, index: number): void {
+    localStorage.setItem(`zp.${tokenAddress}.latestMinedIndex`, index.toString());
   }
 
   private async updateStateNewWorker(tokenAddress: string): Promise<void> {
@@ -443,19 +362,25 @@ export class ZeropoolClient {
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
-    const startIndex = Number(zpState.account.nextTreeIndex());
-    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
+    const startIndex = this.getLatestMinedIndex(tokenAddress);
+    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex) + 1;
+
+
+    const oldLocalIndex = Number(zpState.account.nextTreeIndex());
+    console.log(`Performing maintance rollback from ${oldLocalIndex} to ${startIndex}...`);
+    // Remove locally unconfirmed transactions and retrieve them all other again.
+    // This is a temporary and the least error-prone solution.
+    zpState.account.rollback(BigInt(startIndex));
+
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
       
       console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
 
-      let curBatch = 0;
-      let isLastBatch = false;
-
       let batches: Promise<number>[] = [];
 
+      let latestMinedIndex = this.getLatestMinedIndex(tokenAddress);
       for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then(txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
@@ -473,14 +398,16 @@ export class ZeropoolClient {
 
             // 3. Save necessary parameters and extract memo (only if it corresponds to current account)
             let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
+            const mined = tx.slice(0, 1) == '1';
+
+            if (mined) {
+              latestMinedIndex = i;
+            }
+
             if (myMemo) {
               // if memo block corresponds to the our account - save it to restore history
               myMemo.txHash = '0x' + tx.substr(64, 64);
               zpState.history.saveDecryptedMemo(myMemo);
-
-              // try to convert history on the fly
-              //let hist = convertToHistory(myMemo, txHash);
-              //historyPromises.push(hist);
             }
           }
 
@@ -488,6 +415,10 @@ export class ZeropoolClient {
         });
         batches.push(oneBatch);
       };
+
+      if (latestMinedIndex > this.getLatestMinedIndex(tokenAddress)) {
+        this.setLatestMinedIndex(tokenAddress, latestMinedIndex);
+      }
 
       let txCount = (await Promise.all(batches)).reduce((acc, cur) => acc + cur);;
 
@@ -515,23 +446,6 @@ export class ZeropoolClient {
     const pair = state.account.decryptPair(data);
 
     if (pair) {
-      // It's definitely our transaction since accound was decrypted
-      /*const in_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
-        const address = assembleAddress(note.d, note.p_d);
-        if (state.account.isOwnAddress(address)) {
-          acc.push({ note, index: index + 1 + noteIndex });
-        }
-        return acc;
-      }, []);
-
-      const out_notes = pair.notes.reduce<{ note: Note, index: number }[]>((acc, note, noteIndex) => {
-        const address = assembleAddress(note.d, note.p_d);
-        if (state.account.isOwnAddress(address) == false) {
-          acc.push({ note, index: index + 1 + noteIndex });
-        }
-        return acc;
-      }, []);*/
-
       let in_notes: { note: Note, index: number }[] = [];
       let out_notes: { note: Note, index: number }[] = [];
       for (let i = 0; i < pair.notes.length; ++i) {
@@ -580,7 +494,7 @@ export class ZeropoolClient {
       }
     }
 
-    //console.debug('New balance:', state.account.totalBalance());
+    console.debug('New balance:', state.account.totalBalance());
 
     return undefined;
   }
