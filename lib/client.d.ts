@@ -75,7 +75,8 @@ export declare class ZeropoolClient {
     getAllHistory(tokenAddress: string): Promise<HistoryRecord[]>;
     /** Synchronize the inner state with the relayer */
     updateState(tokenAddress: string): Promise<void>;
-    private updateStateWorker;
+    private getLatestMinedIndex;
+    private setLatestMinedIndex;
     private updateStateNewWorker;
     /**
      * Attempt to extract and save usable account/notes from transaction data.
