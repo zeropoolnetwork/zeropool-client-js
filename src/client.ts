@@ -336,15 +336,7 @@ export class ZeropoolClient {
 
   /** Synchronize the inner state with the relayer */
   public async updateState(tokenAddress: string) {
-    if (this.updateStatePromise == undefined) {
-      this.updateStatePromise = this.updateStateNewWorker(tokenAddress).finally(() => {
-        this.updateStatePromise = undefined;
-      });
-    } else {
-      console.info(`The state currently updating, waiting for finish...`);
-    }
-
-    await this.updateStatePromise;
+    await this.updateStateNewWorker(tokenAddress);
   }
 
   private getLatestMinedIndex(tokenAddress: string): number {
@@ -352,6 +344,7 @@ export class ZeropoolClient {
   }
 
   private setLatestMinedIndex(tokenAddress: string, index: number): void {
+    console.log(`New mined index: ${index}`);
     localStorage.setItem(`zp.${tokenAddress}.latestMinedIndex`, index.toString());
   }
 
@@ -364,14 +357,14 @@ export class ZeropoolClient {
 
     const startIndex = this.getLatestMinedIndex(tokenAddress);
     const nextIndex = Number((await info(token.relayerUrl)).deltaIndex) + 1;
+    const optimisticLocalIndex = Number(zpState.account.nextTreeIndex()) - OUTPLUSONE;
 
-
-    const oldLocalIndex = Number(zpState.account.nextTreeIndex());
-    console.log(`Performing maintance rollback from ${oldLocalIndex} to ${startIndex}...`);
-    // Remove locally unconfirmed transactions and retrieve them all other again.
-    // This is a temporary and the least error-prone solution.
-    zpState.account.rollback(BigInt(startIndex));
-
+    // if (optimisticLocalIndex > startIndex) {
+    //   console.log(`Performing maintance rollback from ${optimisticLocalIndex} to ${startIndex}...`);
+    //   // Remove locally unconfirmed transactions and retrieve them all other again.
+    //   // This is a temporary and the least error-prone solution.
+    //   zpState.account.rollback(BigInt(startIndex + OUTPLUSONE));
+    // }
 
     if (nextIndex > startIndex) {
       const startTime = Date.now();
@@ -400,8 +393,8 @@ export class ZeropoolClient {
             let myMemo = this.cacheShieldedTx(tokenAddress, memo, hashes, memo_idx);
             const mined = tx.slice(0, 1) == '1';
 
-            if (mined) {
-              latestMinedIndex = i;
+            if (mined && memo_idx > latestMinedIndex) {
+              latestMinedIndex = memo_idx;
             }
 
             if (myMemo) {
@@ -416,11 +409,11 @@ export class ZeropoolClient {
         batches.push(oneBatch);
       };
 
+      let txCount = (await Promise.all(batches)).reduce((acc, cur) => acc + cur);
+
       if (latestMinedIndex > this.getLatestMinedIndex(tokenAddress)) {
         this.setLatestMinedIndex(tokenAddress, latestMinedIndex);
       }
-
-      let txCount = (await Promise.all(batches)).reduce((acc, cur) => acc + cur);;
 
       const msElapsed = Date.now() - startTime;
       const avgSpeed = msElapsed / txCount
@@ -494,7 +487,7 @@ export class ZeropoolClient {
       }
     }
 
-    console.debug('New balance:', state.account.totalBalance());
+    // console.debug('New balance:', state.account.totalBalance());
 
     return undefined;
   }

@@ -12,15 +12,16 @@
     "src"
   ],
   "scripts": {
-    "build": "rm -rf lib/ && npx tsc --AllowJs && typedoc",
+    "build": "rm -rf lib/ && npx tsc --AllowJs",
+    "clean": "rm -rf lib/",
     "check": "tsc --noEmit"
   },
   "dependencies": {
     "comlink": "^4.3.1",
     "hdwallet-babyjub": "^0.0.1",
     "idb": "^7.0.0",
-    "libzeropool-rs-wasm-web": "^0.3.20",
-    "libzeropool-rs-wasm-web-mt": "^0.3.20",
+    "libzeropool-rs-wasm-web": "^0.3.21",
+    "libzeropool-rs-wasm-web-mt": "^0.3.21",
     "regenerator-runtime": "^0.13.9",
     "wasm-feature-detect": "^1.2.11",
     "web3": "^1.7.0",
