@@ -1,8 +1,9 @@
 import Web3 from 'web3';
 
-import { TransactionData, Proof, Params, SnarkProof, UserAccount, VK } from 'libzkbob-rs-wasm-web';
+import { TransactionData, SnarkProof, UserAccount, VK } from 'libzeropool-rs-wasm-web';
 import { HexStringReader, HexStringWriter } from './utils';
 import { CONSTANTS } from './constants';
+import { zp } from './zp';
 
 // Sizes in bytes
 const MEMO_META_SIZE: number = 8; // fee (u64)
@@ -84,12 +85,12 @@ export class ShieldedTx {
       prev_leaf: prevLeaf,
     });
 
-    const txValid = Proof.verify(snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
 
-    const treeValid = Proof.verify(snarkParams.treeVk!, treeProof.inputs, treeProof.proof);
+    const treeValid = zp.Proof.verify(snarkParams.treeVk!, treeProof.inputs, treeProof.proof);
     if (!treeValid) {
       throw new Error('invalid tree proof');
     }

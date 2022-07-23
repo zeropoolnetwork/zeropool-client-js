@@ -1,13 +1,13 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData } from 'libzkbob-rs-wasm-web';
+import { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, IndexedTx } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
-import { ZkBobState } from './state';
+import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryRecord, HistoryTransactionType } from './history'
-import { IndexedTx } from 'libzkbob-rs-wasm-web';
+import { HistoryRecord, HistoryTransactionType } from './history';
+import { zp } from './zp';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
 const TX_FEE = BigInt(10000000);
@@ -109,8 +109,8 @@ export interface ClientConfig {
   network: NetworkBackend;
 }
 
-export class ZkBobClient {
-  private zpStates: { [tokenAddress: string]: ZkBobState };
+export class ZeropoolClient {
+  private zpStates: { [tokenAddress: string]: ZeroPoolState };
   private worker: any;
   private snarkParams: SnarkParams;
   private tokens: Tokens;
@@ -118,8 +118,8 @@ export class ZkBobClient {
   private relayerFee: bigint | undefined; // in Gwei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
 
-  public static async create(config: ClientConfig): Promise<ZkBobClient> {
-    const client = new ZkBobClient();
+  public static async create(config: ClientConfig): Promise<ZeropoolClient> {
+    const client = new ZeropoolClient();
     client.zpStates = {};
     client.worker = config.worker;
     client.snarkParams = config.snarkParams;
@@ -135,7 +135,7 @@ export class ZkBobClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZkBobState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
     }
 
     return client;
@@ -282,6 +282,7 @@ export class ZkBobClient {
     signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
     fromAddress: string | null = null,
     feeGwei: bigint = BigInt(0),
+    outputs: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -300,7 +301,8 @@ export class ZkBobClient {
         amount: (amountGwei + feeGwei).toString(),
         fee: feeGwei.toString(),
         deadline: String(deadline),
-        holder
+        holder,
+        outputs
       });
 
       const startProofDate = Date.now();
@@ -308,7 +310,7 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
@@ -336,7 +338,7 @@ export class ZkBobClient {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
-    if (!validateAddress(to)) {
+    if (!zp.validateAddress(to)) {
       throw new Error('Invalid address. Expected a shielded address.');
     }
 
@@ -367,7 +369,7 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
@@ -422,7 +424,7 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
@@ -448,6 +450,7 @@ export class ZkBobClient {
     sign: (data: string) => Promise<string>,
     fromAddress: string | null = null,
     feeGwei: bigint = BigInt(0),
+    outputs: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -461,6 +464,7 @@ export class ZkBobClient {
     let txData = await state.account.createDeposit({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
+      outputs,
     });
 
     const startProofDate = Date.now();
@@ -468,7 +472,7 @@ export class ZkBobClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -503,7 +507,7 @@ export class ZkBobClient {
     const state = this.zpStates[tokenAddress];
 
     const outGwei = outsGwei.map(({ to, amount }) => {
-      if (!validateAddress(to)) {
+      if (!zp.validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
@@ -521,7 +525,7 @@ export class ZkBobClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -559,7 +563,7 @@ export class ZkBobClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
     
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }

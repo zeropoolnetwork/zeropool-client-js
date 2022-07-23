@@ -1,9 +1,9 @@
 import { expose } from 'comlink';
-import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
+import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzeropool-rs-wasm-web-mt';
 
 import { FileCache } from './file-cache';
 
-const wasmPath = new URL('libzkbob-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url);
+const wasmPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
 
 let txParams: Params;
 let treeParams: Params;
