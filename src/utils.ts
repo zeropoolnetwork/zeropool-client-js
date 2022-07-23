@@ -1,6 +1,6 @@
 import { Privkey } from 'hdwallet-babyjub';
 import { numberToHex, padLeft } from 'web3-utils';
-import { validateAddress } from 'libzkbob-rs-wasm-web';
+import { zp } from './zp';
 
 import { NetworkType } from './network-type';
 
@@ -14,7 +14,7 @@ export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): U
 }
 
 export function verifyShieldedAddress(address: string): boolean {
-  return validateAddress(address);
+  return zp.validateAddress(address);
 }
 
 const HEX_TABLE: string[] = [];

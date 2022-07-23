@@ -1,13 +1,13 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { ethAddrToBuf, toCompactSignature, truncateHexPrefix, toTwosComplementHex, addressFromSignature } from './utils';
-import { ZkBobState } from './state';
+import { addressFromSignature, ethAddrToBuf, hexToBuf, toCompactSignature, toTwosComplementHex, truncateHexPrefix } from './utils';
+import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryRecord, HistoryTransactionType } from './history'
-import { IndexedTx } from 'libzkbob-rs-wasm-web';
+import { HistoryRecord, HistoryTransactionType } from './history';
+import { zp } from './zp';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
 const DEFAULT_TX_FEE = BigInt(100000000);
@@ -25,14 +25,14 @@ export interface BatchResult {
   maxMinedIndex: number;
   maxPendingIndex: number;
   state: Map<number, StateUpdate>;  // key: first tx index, 
-                                    // value: StateUpdate object (notes, accounts, leafs and comminments)
+  // value: StateUpdate object (notes, accounts, leafs and comminments)
 }
 
 export interface TxAmount { // all values are in Gwei
   amount: bigint;  // tx amount (without fee)
   fee: bigint;  // fee 
   accountLimit: bigint;  // minimum account remainder after transaction
-                         // (used for complex multi-tx transfers, default: 0)
+  // (used for complex multi-tx transfers, default: 0)
 }
 
 export interface TxToRelayer {
@@ -81,7 +81,7 @@ export interface PoolLimits { // all values are in Gwei
   }
 }
 
-export interface LimitsFetch { 
+export interface LimitsFetch {
   deposit: {
     singleOperation: bigint;
     daylyForAddress: Limit;
@@ -107,8 +107,8 @@ export interface ClientConfig {
   network: NetworkBackend;
 }
 
-export class ZkBobClient {
-  private zpStates: { [tokenAddress: string]: ZkBobState };
+export class ZeropoolClient {
+  private zpStates: { [tokenAddress: string]: ZeroPoolState };
   private worker: any;
   private snarkParams: SnarkParams;
   private tokens: Tokens;
@@ -116,8 +116,8 @@ export class ZkBobClient {
   private relayerFee: bigint | undefined; // in Gwei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
 
-  public static async create(config: ClientConfig): Promise<ZkBobClient> {
-    const client = new ZkBobClient();
+  public static async create(config: ClientConfig): Promise<ZeropoolClient> {
+    const client = new ZeropoolClient();
     client.zpStates = {};
     client.worker = config.worker;
     client.snarkParams = config.snarkParams;
@@ -133,7 +133,7 @@ export class ZkBobClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZkBobState.create(config.sk, networkName, config.network.getRpcUrl(), denominator);
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
     }
 
     return client;
@@ -160,7 +160,7 @@ export class ZkBobClient {
   public shieldedAmountToWei(tokenAddress, amountGwei: bigint): bigint {
     return amountGwei * this.zpStates[tokenAddress].denominator
   }
-  
+
   // Convert base units to the native pool amount
   public weiToShieldedAmount(tokenAddress, amountWei: bigint): bigint {
     return amountWei / this.zpStates[tokenAddress].denominator
@@ -240,13 +240,13 @@ export class ZkBobClient {
   }
 
   // Waiting while relayer process the jobs set
-  public async waitJobsCompleted(tokenAddress: string, jobIds: string[]): Promise<{jobId: string, txHash: string}[]> {
+  public async waitJobsCompleted(tokenAddress: string, jobIds: string[]): Promise<{ jobId: string, txHash: string }[]> {
     const token = this.tokens[tokenAddress];
     let promises = jobIds.map(async (jobId) => {
       const txHashes: string[] = await this.waitJobCompleted(tokenAddress, jobId);
       return { jobId, txHash: txHashes[0] };
     });
-    
+
     return Promise.all(promises);
   }
 
@@ -275,7 +275,7 @@ export class ZkBobClient {
     }
 
     state.history.setTxHashesForQueuedTransactions(jobId, hashes);
-    
+
 
     console.info(`Transaction [job ${jobId}] successful: ${hashes.join(", ")}`);
 
@@ -325,6 +325,7 @@ export class ZkBobClient {
     signTypedData: (deadline: bigint, value: bigint, salt: string) => Promise<string>,
     fromAddress: string | null = null,
     feeGwei: bigint = BigInt(0),
+    outputs: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -342,13 +343,14 @@ export class ZkBobClient {
 
     let txData;
     if (fromAddress) {
-      const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
+      const deadline: bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
       const holder = ethAddrToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({ 
+      txData = await state.account.createDepositPermittable({
         amount: (amountGwei + feeGwei).toString(),
         fee: feeGwei.toString(),
         deadline: String(deadline),
-        holder
+        holder,
+        outputs
       });
 
       const startProofDate = Date.now();
@@ -356,7 +358,7 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
@@ -392,7 +394,7 @@ export class ZkBobClient {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
-    if (!validateAddress(to)) {
+    if (!zp.validateAddress(to)) {
       throw new Error('Invalid address. Expected a shielded address.');
     }
 
@@ -416,7 +418,7 @@ export class ZkBobClient {
     for (let index = 0; index < txParts.length; index++) {
       const onePart = txParts[index];
       const oneTx: ITransferData = {
-        outputs: [{to, amount: onePart.amount.toString()}],
+        outputs: [{ to, amount: onePart.amount.toString() }],
         fee: onePart.fee.toString(),
       };
       const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState);
@@ -428,12 +430,12 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
 
-      const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Transfer};
+      const transaction = { memo: oneTxData.memo, proof: txProof, txType: TxType.Transfer };
 
       const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
       jobsIds.push(jobId);
@@ -485,7 +487,7 @@ export class ZkBobClient {
 
     const addressBin = ethAddrToBuf(address);
 
-    const transfers = txParts.map(({amount, fee, accountLimit}) => {
+    const transfers = txParts.map(({ amount, fee, accountLimit }) => {
       const oneTransfer: IWithdrawData = {
         amount: amount.toString(),
         fee: fee.toString(),
@@ -521,12 +523,12 @@ export class ZkBobClient {
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
       if (!txValid) {
         throw new Error('invalid tx proof');
       }
 
-      const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Withdraw};
+      const transaction = { memo: oneTxData.memo, proof: txProof, txType: TxType.Withdraw };
 
       const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
       jobsIds.push(jobId);
@@ -558,8 +560,9 @@ export class ZkBobClient {
     amountGwei: bigint,
     sign: (data: string) => Promise<string>,
     fromAddress: string | null = null,  // this field is only for substrate-based network,
-                                        // it should be null for EVM
+    // it should be null for EVM
     feeGwei: bigint = BigInt(0),
+    outputs: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -573,6 +576,7 @@ export class ZkBobClient {
     let txData = await state.account.createDeposit({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
+      outputs,
     });
 
     const startProofDate = Date.now();
@@ -580,7 +584,7 @@ export class ZkBobClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -590,7 +594,7 @@ export class ZkBobClient {
 
     // TODO: Sign fromAddress as well?
     const signature = truncateHexPrefix(await sign(dataToSign));
-    
+
     // now we can restore actual depositer address and check it for limits
     const addrFromSig = addressFromSignature(signature, dataToSign);
     const limits = await this.getLimits(tokenAddress, addrFromSig);
@@ -631,7 +635,7 @@ export class ZkBobClient {
     const state = this.zpStates[tokenAddress];
 
     const outGwei = outsGwei.map(({ to, amount }) => {
-      if (!validateAddress(to)) {
+      if (!zp.validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
@@ -649,7 +653,7 @@ export class ZkBobClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -659,7 +663,7 @@ export class ZkBobClient {
 
     // Temporary save transactions in the history module (to prevent history delays)
     const feePerOut = feeGwei / BigInt(outGwei.length);
-    let recs = outGwei.map(({to, amount}) => {
+    let recs = outGwei.map(({ to, amount }) => {
       const ts = Math.floor(Date.now() / 1000);
       if (state.isOwnAddress(to)) {
         return HistoryRecord.transferLoopback(to, BigInt(amount), feePerOut, ts, "0", true);
@@ -705,8 +709,8 @@ export class ZkBobClient {
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-    
-    const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
+
+    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
     if (!txValid) {
       throw new Error('invalid tx proof');
     }
@@ -756,7 +760,7 @@ export class ZkBobClient {
       txCnt = parts.length;
       total = totalPerTx * BigInt(txCnt);
     }
-    return {total, totalPerTx, txCnt, relayer, l1};
+    return { total, totalPerTx, txCnt, relayer, l1 };
   }
 
   // Relayer fee component. Do not use it directly
@@ -793,7 +797,7 @@ export class ZkBobClient {
       txCnt += Math.ceil((usableNotes.length - CONSTANTS.IN) / CONSTANTS.IN);
     }
 
-    for(let i = 0; i < usableNotes.length; i++) {
+    for (let i = 0; i < usableNotes.length; i++) {
       const curNote = usableNotes[i][1];
       notesBalance += BigInt(curNote.b)
     }
@@ -822,11 +826,11 @@ export class ZkBobClient {
     let remainAmount = amountGwei;
 
     if (accountBalance >= remainAmount + feeGwei) {
-      result.push({amount: remainAmount, fee: feeGwei, accountLimit: BigInt(0)});
+      result.push({ amount: remainAmount, fee: feeGwei, accountLimit: BigInt(0) });
     } else {
       let notesParts: Array<bigint> = [];
       let curPart = BigInt(0);
-      for(let i = 0; i < usableNotes.length; i++) {
+      for (let i = 0; i < usableNotes.length; i++) {
         const curNote = usableNotes[i][1];
 
         if (i > 0 && i % CONSTANTS.IN == 0) {
@@ -843,23 +847,23 @@ export class ZkBobClient {
 
       let oneTxPart = accountBalance;
 
-      for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
+      for (let i = 0; i < notesParts.length && remainAmount > 0; i++) {
         oneTxPart += notesParts[i];
         if (oneTxPart - feeGwei > remainAmount) {
           oneTxPart = remainAmount + feeGwei;
         }
 
-        if(oneTxPart < feeGwei || oneTxPart < MIN_TX_AMOUNT) {
+        if (oneTxPart < feeGwei || oneTxPart < MIN_TX_AMOUNT) {
           break;
         }
 
-        result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
+        result.push({ amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0) });
 
         remainAmount -= (oneTxPart - feeGwei);
         oneTxPart = BigInt(0);
       }
 
-      if(remainAmount > 0){
+      if (remainAmount > 0) {
         result = [];
       }
     }
@@ -883,18 +887,18 @@ export class ZkBobClient {
             available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
           },
           daylyForAll: {
-            total:      BigInt(poolLimits.dailyDepositCap),
-            available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
+            total: BigInt(poolLimits.dailyDepositCap),
+            available: BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
           },
           poolLimit: {
-            total:      BigInt(poolLimits.tvlCap),
-            available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
+            total: BigInt(poolLimits.tvlCap),
+            available: BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
           },
         },
         withdraw: {
           daylyForAll: {
-            total:      BigInt(poolLimits.dailyWithdrawalCap),
-            available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
+            total: BigInt(poolLimits.dailyWithdrawalCap),
+            available: BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
           },
         }
       };
@@ -910,18 +914,18 @@ export class ZkBobClient {
             available: BigInt(10000000000000),  // 10k tokens
           },
           daylyForAll: {
-            total:      BigInt(100000000000000),  // 100k tokens
-            available:  BigInt(100000000000000),  // 100k tokens
+            total: BigInt(100000000000000),  // 100k tokens
+            available: BigInt(100000000000000),  // 100k tokens
           },
           poolLimit: {
-            total:      BigInt(1000000000000000), // 1kk tokens
-            available:  BigInt(1000000000000000), // 1kk tokens
+            total: BigInt(1000000000000000), // 1kk tokens
+            available: BigInt(1000000000000000), // 1kk tokens
           },
         },
         withdraw: {
           daylyForAll: {
-            total:      BigInt(100000000000000),  // 100k tokens
-            available:  BigInt(100000000000000),  // 100k tokens
+            total: BigInt(100000000000000),  // 100k tokens
+            available: BigInt(100000000000000),  // 100k tokens
           },
         }
       };
@@ -968,7 +972,7 @@ export class ZkBobClient {
     let totalDepositLimit = bigIntMin(...allDepositLimits);
 
     // Calculate withdraw limits
-    const allWithdrawLimits = [ currentLimits.withdraw.daylyForAll.available ];
+    const allWithdrawLimits = [currentLimits.withdraw.daylyForAll.available];
     let totalWithdrawLimit = bigIntMin(...allWithdrawLimits);
 
     return {
@@ -1022,7 +1026,7 @@ export class ZkBobClient {
   public async rawState(tokenAddress: string): Promise<any> {
     return await this.zpStates[tokenAddress].rawState();
   }
-  
+
 
   // TODO: implement correct state cleaning
   public async cleanState(tokenAddress: string): Promise<void> {
@@ -1062,20 +1066,20 @@ export class ZkBobClient {
 
     if (optimisticIndex > startIndex) {
       const startTime = Date.now();
-      
+
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
-      
+
       let batches: Promise<BatchResult>[] = [];
 
       let readyToTransact = true;
 
       for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-        let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
+        let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then(async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
 
           let batchState = new Map<number, StateUpdate>();
-          
+
           let txHashes: Record<number, string> = {};
           let indexedTxs: IndexedTx[] = [];
 
@@ -1089,14 +1093,14 @@ export class ZkBobClient {
             const tx = txs[txIdx];
             // Get the first leaf index in the tree
             const memo_idx = i + txIdx * OUTPLUSONE;
-            
+
             // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
             // 1. Extract memo block
             const memo = tx.slice(129); // Skip mined flag, txHash and commitment
 
             // 2. Get transaction commitment
             const commitment = tx.substr(65, 64)
-            
+
             const indexedTx: IndexedTx = {
               index: memo_idx,
               memo: memo,
@@ -1149,13 +1153,13 @@ export class ZkBobClient {
             }
           }
 
-          return {txCount: txs.length, maxMinedIndex, maxPendingIndex, state: batchState} ;
+          return { txCount: txs.length, maxMinedIndex, maxPendingIndex, state: batchState };
         });
         batches.push(oneBatch);
       };
 
       let totalState = new Map<number, StateUpdate>();
-      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1, state: totalState};
+      let initRes: BatchResult = { txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1, state: totalState };
       let totalRes = (await Promise.all(batches)).reduce((acc, cur) => {
         return {
           txCount: acc.txCount + cur.txCount,
@@ -1213,27 +1217,27 @@ export class ZkBobClient {
 
     if (optimisticIndex > startIndex) {
       const startTime = Date.now();
-      
+
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       const numOfTx = Number((optimisticIndex - startIndex) / BigInt(OUTPLUSONE));
-      let stateUpdate = this.fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then( async txs => {
+      let stateUpdate = this.fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then(async txs => {
         console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
-        
+
         let indexedTxs: IndexedTx[] = [];
 
         for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
           const tx = txs[txIdx];
           // Get the first leaf index in the tree
           const memo_idx = Number(startIndex) + txIdx * OUTPLUSONE;
-          
+
           // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
           // 1. Extract memo block
           const memo = tx.slice(129); // Skip mined flag, txHash and commitment
 
           // 2. Get transaction commitment
           const commitment = tx.substr(65, 64)
-          
+
           const indexedTx: IndexedTx = {
             index: memo_idx,
             memo: memo,
@@ -1258,7 +1262,7 @@ export class ZkBobClient {
     } else {
       console.log(`Do not need to fetch @${startIndex}`);
 
-      return {newLeafs: [], newCommitments: [], newAccounts: [], newNotes: []};
+      return { newLeafs: [], newCommitments: [], newAccounts: [], newNotes: [] };
     }
   }
 
@@ -1268,7 +1272,7 @@ export class ZkBobClient {
       if (decryptedMemo.index > startIndex) {
         console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${decryptedMemo.index - OUTPLUSONE})`);
       }
-      startIndex = decryptedMemo.index + OUTPLUSONE; 
+      startIndex = decryptedMemo.index + OUTPLUSONE;
 
       if (decryptedMemo.acc) {
         console.info(`📝 Adding account, notes, and hashes to state (at index ${decryptedMemo.index})`);
@@ -1285,91 +1289,91 @@ export class ZkBobClient {
   // ------------------=========< Relayer interactions >=========-------------------
   // | Methods to interact with the relayer                                        |
   // -------------------------------------------------------------------------------
-  
+
   private async fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
     const url = new URL(`/transactions/v2`, relayerUrl);
     url.searchParams.set('limit', limit.toString());
     url.searchParams.set('offset', offset.toString());
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await (await fetch(url.toString(), {headers})).json();  
-  
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
+    const res = await (await fetch(url.toString(), { headers })).json();
+
     return res;
   }
-  
+
   // returns transaction job ID
   private async sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
     const url = new URL('/sendTransactions', relayerUrl);
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
     const res = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify(txs) });
-  
+
     if (!res.ok) {
       const body = await res.json();
       throw new Error(`Error ${res.status}: ${JSON.stringify(body)}`)
     }
-  
+
     const json = await res.json();
     return json.jobId;
   }
-  
+
   private async getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
     const url = new URL(`/job/${id}`, relayerUrl);
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await (await fetch(url.toString(), {headers})).json();
-  
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
+    const res = await (await fetch(url.toString(), { headers })).json();
+
     if (typeof res === 'string') {
       return null;
     } else {
       return res;
     }
   }
-  
+
   private async info(relayerUrl: string): Promise<RelayerInfo> {
     const url = new URL('/info', relayerUrl);
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await fetch(url.toString(), {headers});
-  
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
+    const res = await fetch(url.toString(), { headers });
+
     return await res.json();
   }
-  
+
   private async fee(relayerUrl: string): Promise<bigint> {
     try {
       const url = new URL('/fee', relayerUrl);
-      const headers = {'content-type': 'application/json;charset=UTF-8'};
-      const res = await (await fetch(url.toString(), {headers})).json();
+      const headers = { 'content-type': 'application/json;charset=UTF-8' };
+      const res = await (await fetch(url.toString(), { headers })).json();
       return BigInt(res.fee);
     } catch {
       return DEFAULT_TX_FEE;
     }
   }
-  
+
   private async limits(relayerUrl: string, address: string | undefined): Promise<LimitsFetch> {
     const url = new URL('/limits', relayerUrl);
     if (address !== undefined) {
       url.searchParams.set('address', address);
     }
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await (await fetch(url.toString(), {headers})).json();
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
+    const res = await (await fetch(url.toString(), { headers })).json();
 
     return {
       deposit: {
         singleOperation: BigInt(res.deposit.singleOperation),
         daylyForAddress: {
-          total:     BigInt(res.deposit.daylyForAddress.total),
+          total: BigInt(res.deposit.daylyForAddress.total),
           available: BigInt(res.deposit.daylyForAddress.available),
         },
         daylyForAll: {
-          total:      BigInt(res.deposit.daylyForAll.total),
-          available:  BigInt(res.deposit.daylyForAll.available),
+          total: BigInt(res.deposit.daylyForAll.total),
+          available: BigInt(res.deposit.daylyForAll.available),
         },
         poolLimit: {
-          total:      BigInt(res.deposit.poolLimit.total),
-          available:  BigInt(res.deposit.poolLimit.available),
+          total: BigInt(res.deposit.poolLimit.total),
+          available: BigInt(res.deposit.poolLimit.available),
         },
       },
       withdraw: {
         daylyForAll: {
-          total:      BigInt(res.withdraw.daylyForAll.total),
-          available:  BigInt(res.withdraw.daylyForAll.available),
+          total: BigInt(res.withdraw.daylyForAll.total),
+          available: BigInt(res.withdraw.daylyForAll.available),
         },
       }
     };
@@ -1380,9 +1384,9 @@ export class ZkBobClient {
     const url = new URL(`/transactions`, relayerUrl);
     url.searchParams.set('limit', limit.toString());
     url.searchParams.set('offset', offset.toString());
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await (await fetch(url.toString(), {headers})).json();
-  
+    const headers = { 'content-type': 'application/json;charset=UTF-8' };
+    const res = await (await fetch(url.toString(), { headers })).json();
+
     return res;
   }
 }

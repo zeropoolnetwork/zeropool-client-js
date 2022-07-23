@@ -1,10 +1,23 @@
-# zkbob-client-js
+# zeropool-client-js
 
-## Example
+TypeScript/JavaScript client library for creating and sending shielded ZeroPool transactions.
+
+## Setup
+The default Webpack 5 configuration should be sufficient for this library. The only requirement is that it must properly process the `new URL('...', import.meta.url)` syntax.
+
+## Multithread version
+Enable the following headers on your server to enable the multithreaded mode:
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+On average, this will speed up the transaction creation process by about 2.5-3 times.
+
+## Usage example
 ```js
-import { init, ZkBobClient } from 'zkbob-client-js';
-import { EvmNetwork } from 'zkbob-client-js/lib/networks/evm';
+import { init, ZeropoolClient, EvmNetwork } from 'zeropool-client-js';
 
+// Use https://github.com/zeropoolnetwork/libzeropool CLI to generate theese files
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
   treeParamsUrl: '/path/to/tree/params',
@@ -13,7 +26,7 @@ const snarkParams = {
 };
 
 // Initialize the library.
-init('/path/to/wasm', '/path/to/worker.js', snarkParams)
+init(snarkParams)
   .then(async (ctx) => {
       // Spending key
       const sk = new Uint8Array(32);
@@ -28,7 +41,7 @@ init('/path/to/wasm', '/path/to/worker.js', snarkParams)
 
       const evmRpcUrl = '...';
       const network = new EvmNetwork(evmRpcUrl);
-      const client = await ZkBobClient.create({
+      const client = await ZeropoolClient.create({
         sk,
         tokens,
         snarkParams: ctx.snarkParams,
