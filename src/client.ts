@@ -14,7 +14,9 @@ const TX_FEE = BigInt(10000000);
 
 export interface RelayerInfo {
   root: string;
+  optimisticRoot: string;
   deltaIndex: string;
+  optimisticDeltaIndex: string;
 }
 
 export interface BatchResult {
@@ -192,11 +194,11 @@ export class ZkBobClient {
   // Get total balance including transactions in optimistic state [in Gwei]
   // There is no option to prevent state update here,
   // because we should always monitor optimistic state
-  public async getOptimisticTotalBalance(tokenAddress: string): Promise<bigint> {
+  public async getOptimisticTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
     const state = this.zpStates[tokenAddress];
 
-    const confirmedBalance = await this.getTotalBalance(tokenAddress);
-    const historyRecords = await this.getAllHistory(tokenAddress);
+    const confirmedBalance = await this.getTotalBalance(tokenAddress, updateState);
+    const historyRecords = await this.getAllHistory(tokenAddress, updateState);
 
     let pendingDelta = BigInt(0);
     for (const oneRecord of historyRecords) {
@@ -781,21 +783,22 @@ export class ZkBobClient {
     const state = this.zpStates[tokenAddress];
 
     const startIndex = Number(zpState.account.nextTreeIndex());
-    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
-    // TODO: it's just a workaroud while relayer doesn't return optimistic index!
-    const optimisticIndex = nextIndex + 1;
+
+    const stateInfo = await info(token.relayerUrl);
+    const nextIndex = Number(stateInfo.deltaIndex);
+    const optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
 
     if (optimisticIndex > startIndex) {
       const startTime = Date.now();
       
-      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       
       let batches: Promise<BatchResult>[] = [];
 
       let readyToTransact = true;
 
-      for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
+      for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
           
