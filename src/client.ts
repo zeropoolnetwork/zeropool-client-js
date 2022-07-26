@@ -900,6 +900,9 @@ export class ZkBobClient {
 
       return readyToTransact;
     } else {
+      zpState.history.setLastMinedTxIndex(nextIndex - OUTPLUSONE);
+      zpState.history.setLastPendingTxIndex(-1);
+
       console.log(`Local state is up to date @${startIndex}`);
 
       return true;
