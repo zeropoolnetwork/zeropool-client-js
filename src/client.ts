@@ -573,7 +573,7 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
-    let txData = await state.account.createDeposit({
+    let txData = state.account.createDeposit({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
       outputs,
@@ -646,7 +646,7 @@ export class ZeropoolClient {
       return { to, amount };
     });
 
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
+    const txData = state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -697,7 +697,7 @@ export class ZeropoolClient {
     const txType = TxType.Withdraw;
     const addressBin = ethAddrToBuf(address);
 
-    const txData = await state.account.createWithdraw({
+    const txData = state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
