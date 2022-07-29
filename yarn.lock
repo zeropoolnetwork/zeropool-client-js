@@ -2645,15 +2645,15 @@ levn@^0.3.0, levn@~0.3.0:
     prelude-ls "~1.1.2"
     type-check "~0.3.2"
 
-libzeropool-rs-wasm-web-mt@^0.5.0:
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/libzeropool-rs-wasm-web-mt/-/libzeropool-rs-wasm-web-mt-0.5.0.tgz#17de449c6714939f642fb456bab77e8ec26be05a"
-  integrity sha512-RgQh3VNHg54nj7i+nFzlw9TrMRfQobw/jdlKdkiUXeE4/gDH+47uMP276YwRTD7zezH3llEY01CNtYxEBT9HkQ==
+libzeropool-rs-wasm-web-mt@^0.5.1:
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/libzeropool-rs-wasm-web-mt/-/libzeropool-rs-wasm-web-mt-0.5.1.tgz#2c22718635094aa226c5912f26ae9625c423efa8"
+  integrity sha512-JVuc1Tzeqe89BrBQAHwiGrvdoc+1YBMug3Wa/O6cZW3EukCu30tx37jcBCT5KtMdNJD0+es5QMZE1oaRmlS2sg==
 
-libzeropool-rs-wasm-web@^0.5.0:
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/libzeropool-rs-wasm-web/-/libzeropool-rs-wasm-web-0.5.0.tgz#7777ed4a492e331a45f4b4a26932fe4a5fb82da9"
-  integrity sha512-eqfwNH5dBuNZhYPQOawNW4DzbVx1z27OGOFbqTGgOX+aspJhb5dmA1DbZigqtJCqa4d19c96dwcAdsmcKh2z+w==
+libzeropool-rs-wasm-web@^0.5.1:
+  version "0.5.1"
+  resolved "https://registry.yarnpkg.com/libzeropool-rs-wasm-web/-/libzeropool-rs-wasm-web-0.5.1.tgz#ddebfa50d557fc0852a32be8e73a04ec24825856"
+  integrity sha512-C+An3H+btIAsFtUKMGRk5vjSDFRbaJysc5+sTH5kysLDnO2Am7D4tsrKRjeOqsU4Ub7knAx86mybZV8ea2HJNw==
 
 loader-runner@^4.2.0:
   version "4.2.0"
