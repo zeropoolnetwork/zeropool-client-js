@@ -25,19 +25,17 @@ const obj = {
   },
 
   async proveTx(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTx');
-      const result = Proof.tx(txParams, pub, sec);
-      resolve(result);
-    });
+    console.debug('Web worker: proveTx');
+    const proof = Proof.tx(txParams, pub, sec);
+    console.debug('Web worker: proveTx complete');
+    return proof
   },
 
   async proveTree(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTree');
-      const result = Proof.tree(treeParams, pub, sec);
-      resolve(result);
-    });
+    console.debug('Web worker: proveTree');
+    const proof = Proof.tree(treeParams, pub, sec);
+    console.debug('Web worker: proveTree complete');
+    return proof
   },
 };
 
