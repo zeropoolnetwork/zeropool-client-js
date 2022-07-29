@@ -161,7 +161,7 @@ export class ZeropoolClient {
 
     const txType = isBridge ? TxType.BridgeDeposit : TxType.Deposit;
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createDeposit({ amount: amountGwei, fee, outputs: outGwei });
+    const txData = state.account.createDeposit({ amount: amountGwei, fee, outputs: outGwei });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -220,7 +220,7 @@ export class ZeropoolClient {
       }
     });
 
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee });
+    const txData = state.account.createTransfer({ outputs: outGwei, fee });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -257,7 +257,7 @@ export class ZeropoolClient {
     const addressBin = hexToBuf(address);
 
     const amountGwei = (BigInt(amountWei) / state.denominator).toString();
-    const txData = await state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
+    const txData = state.account.createWithdraw({ amount: amountGwei, to: addressBin, fee, native_amount: '0', energy_amount: '0' });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
