@@ -10,7 +10,7 @@ import { HistoryRecord, HistoryTransactionType } from './history';
 import { zp } from './zp';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
-const TX_FEE = BigInt(10000000);
+const TX_FEE = BigInt(0);
 
 export interface RelayerInfo {
   root: string;
@@ -297,7 +297,7 @@ export class ZeropoolClient {
     if (fromAddress) {
       const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
       const holder = hexToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({ 
+      txData = state.account.createDepositPermittable({ 
         amount: (amountGwei + feeGwei).toString(),
         fee: feeGwei.toString(),
         deadline: String(deadline),
@@ -361,7 +361,7 @@ export class ZeropoolClient {
       return oneTransfer;
     });
 
-    const txsData = await state.account.createMultiTransfer(transfers);
+    const txsData = state.account.createMultiTransfer(transfers);
 
     const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
@@ -416,7 +416,7 @@ export class ZeropoolClient {
       return oneTransfer;
     });
 
-    const txsData = await state.account.createMultiWithdraw(transfers);
+    const txsData = state.account.createMultiWithdraw(transfers);
 
     const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
@@ -461,7 +461,7 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
-    let txData = await state.account.createDeposit({
+    let txData = state.account.createDeposit({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
       outputs,
@@ -518,7 +518,7 @@ export class ZeropoolClient {
       return { to, amount };
     });
 
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
+    const txData = state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -550,7 +550,7 @@ export class ZeropoolClient {
     const txType = TxType.Withdraw;
     const addressBin = hexToBuf(address);
 
-    const txData = await state.account.createWithdraw({
+    const txData = state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
