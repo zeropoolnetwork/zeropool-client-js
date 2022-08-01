@@ -398,6 +398,9 @@ export class HistoryStorage {
           }
 
           throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
+      } else {
+        // TODO: look for a transactions, initiated by the user and try to convert it to the HistoryRecord
+
       }
 
       //throw new Error(`Unable to get transaction details (${txHash})`);

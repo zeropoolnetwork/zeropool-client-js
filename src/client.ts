@@ -37,6 +37,14 @@ export interface TxToRelayer {
   depositSignature?: string
 }
 
+export interface JobInfo {
+  state: string;
+  txHash: string[];
+  createdOn: BigInt;
+  finishedOn?: BigInt;
+  failedReason?: string;
+}
+
 export interface FeeAmount { // all values are in Gwei
   total: bigint;    // total fee
   totalPerTx: bigint; // multitransfer case (== total for regular tx)
@@ -77,7 +85,7 @@ async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise
   return json.jobId;
 }
 
-async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string[] } | null> {
+async function getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
   const url = new URL(`/job/${id}`, relayerUrl);
   const res = await (await fetch(url.toString())).json();
 
@@ -255,7 +263,7 @@ export class ZkBobClient {
         console.error(`Job ${jobId} not found.`);
         throw new Error(`Job ${jobId} not found`);
       } else if (job.state === 'failed') {
-        throw new Error(`Transaction [job ${jobId}] failed`);
+        throw new Error(`Transaction [job ${jobId}] failed with reason: '${job.failedReason}'`);
       } else if (job.state === 'completed') {
         hashes = job.txHash;
         break;
