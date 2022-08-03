@@ -1,4 +1,4 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -11,6 +11,7 @@ import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
 const TX_FEE = BigInt(10000000);
+const BATCH_SIZE = 100;
 
 export interface RelayerInfo {
   root: string;
@@ -776,7 +777,6 @@ export class ZkBobClient {
   // Currently it's just a workaround
   private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
-    const BATCH_SIZE = 10000;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
@@ -845,7 +845,7 @@ export class ZkBobClient {
           }
 
           if (indexedTxs.length > 0) {
-            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
+            const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
             const decryptedMemos = parseResult.decryptedMemos;
             state.account.updateState(parseResult.stateUpdate);
             this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
@@ -858,7 +858,7 @@ export class ZkBobClient {
           }
 
           if (indexedTxsPending.length > 0) {
-            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxsPending);
+            const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxsPending);
             const decryptedPendingMemos = parseResult.decryptedMemos;
             for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
               // save memos corresponding to the our account to restore history
