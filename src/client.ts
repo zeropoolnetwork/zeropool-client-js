@@ -10,7 +10,7 @@ import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
-const TX_FEE = BigInt(10000000);
+const DEFAULT_TX_FEE = BigInt(10000000);
 
 export interface RelayerInfo {
   root: string;
@@ -93,6 +93,17 @@ async function info(relayerUrl: string): Promise<RelayerInfo> {
   const res = await fetch(url.toString());
 
   return await res.json();
+}
+
+async function fee(relayerUrl: string): Promise<bigint> {
+  try {
+    const url = new URL('/fee', relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+    return BigInt(res.fee);
+  } catch {
+    return DEFAULT_TX_FEE;
+  }
 }
 
 export interface ClientConfig {
@@ -608,8 +619,9 @@ export class ZkBobClient {
   // Relayer fee component. Do not use it directly
   private async getRelayerFee(tokenAddress: string): Promise<bigint> {
     if (this.relayerFee === undefined) {
-      // TODO: fetch actual fee from the relayer
-      this.relayerFee = TX_FEE;
+      // fetch actual fee from the relayer
+      const token = this.tokens[tokenAddress];
+      this.relayerFee = await fee(token.relayerUrl);
     }
 
     return this.relayerFee;
