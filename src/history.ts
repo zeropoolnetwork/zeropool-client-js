@@ -1,9 +1,8 @@
 import { openDB, IDBPDatabase } from 'idb';
 import Web3 from 'web3';
-import Personal from 'web3-eth-personal';
 import { Account, Note, assembleAddress } from 'libzkbob-rs-wasm-web';
 import { ShieldedTx, TxType } from './tx';
-import { truncateHexPrefix, addHexPrefix, toCanonicalSignature, parseCompactSignature } from './utils';
+import { toCanonicalSignature } from './utils';
 import { CONSTANTS } from './constants';
 
 export enum HistoryTransactionType {
@@ -34,6 +33,26 @@ export class HistoryRecord {
     public txHash: string,
     public pending: boolean,
   ) {}
+
+  public static deposit(from: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+    return new HistoryRecord(HistoryTransactionType.Deposit, ts, from, "", amount, fee, txHash, pending);
+  }
+
+  public static transferIn(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+    return new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", to, amount, fee, txHash, pending);
+  }
+
+  public static transferOut(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+    return new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", to, amount, fee, txHash, pending);
+  }
+
+  public static transferLoopback(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+    return new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, "", to, amount, fee, txHash, pending);
+  }
+
+  public static withdraw(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+    return new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", to, amount, fee, txHash, pending);
+  }
 
   public toJson(): string {
     return JSON.stringify(this, (_, v) => typeof v === 'bigint' ? `${v}n` : v)
@@ -79,6 +98,18 @@ const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 export class HistoryStorage {
   private db: IDBPDatabase;
   private syncIndex = -1;
+
+  private queuedTxs = new Map<string, HistoryRecord[]>(); // jobId -> HistoryRecord[]
+                                          //(while tx isn't processed on relayer)
+                                          // We don't know txHashes for history records at that moment,
+                                          // but we can assign it sequence number inside a job.
+                                          // So in HistoryRecords array txHash should be interpreted
+                                          // as the index of transaction in correspondance of sending order
+
+  private sendedTxs = new Map<string, HistoryRecord[]>(); // txHash -> HistoryRecord[]
+                                          // (while we have a hash from relayer but it isn't indexed on RPC JSON)
+                                          // At that moment we should fill txHash for every history record correctly
+
   private unparsedMemo = new Map<number, DecryptedMemo>();  // local decrypted memos cache
   private unparsedPendingMemo = new Map<number, DecryptedMemo>();  // local decrypted pending memos cache
   private currentHistory = new Map<number, HistoryRecord>();  // local history cache
@@ -152,6 +183,32 @@ export class HistoryStorage {
     return recordsArray.sort((rec1, rec2) => 0 - (rec1.timestamp > rec2.timestamp ? -1 : 1));
   }
 
+  // remember just sended transactions to restore history record immediately
+  public keepQueuedTransactions(txs: HistoryRecord[], jobId: string) {
+    this.queuedTxs.set(jobId, txs);
+  }
+
+  // set txHash mapping for awaiting transactions
+  public setTxHashesForQueuedTransactions(jobId: string, txHashes: string[]) {
+    let txs = this.queuedTxs.get(jobId);
+    if (txs && txHashes.length > 0) {
+      for(let oneTx of txs) {
+        let hashIndex = Number(oneTx.txHash);
+        if (hashIndex >= 0 && hashIndex < txHashes.length) {
+          oneTx.txHash = txHashes[hashIndex];
+          let array: HistoryRecord[] = this.sendedTxs[oneTx.txHash];
+          if(array === undefined) {
+            array = [];
+          }
+          array.push(oneTx);
+          this.sendedTxs[oneTx.txHash] = array;
+        }
+      }      
+    }
+
+    this.queuedTxs.delete(jobId);
+  }
+
   public async saveDecryptedMemo(memo: DecryptedMemo, pending: boolean): Promise<DecryptedMemo> {
     const mask = (-1) << CONSTANTS.OUTLOG;
     const memoIndex = memo.index & mask;
@@ -168,8 +225,6 @@ export class HistoryStorage {
 
     return memo;
   }
-
-
 
   public async getDecryptedMemo(index: number, allowPending: boolean): Promise<DecryptedMemo | null> {
     const mask = (-1) << CONSTANTS.OUTLOG;
@@ -336,7 +391,7 @@ export class HistoryStorage {
                         const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
                         const depositHolderAddr = await this.web3.eth.accounts.recover(nullifier, fullSig);
 
-                        let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash, pending);
+                        let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
                         allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                         
                       } else {
@@ -349,7 +404,7 @@ export class HistoryStorage {
                       // source address in the memo block (20 bytes, starts from 16 bytes offset)
                       const depositHolderAddr = '0x' + tx.memo.substr(32, 40);  // TODO: Check it!
 
-                      let rec = new HistoryRecord(HistoryTransactionType.Deposit, ts, depositHolderAddr, "", tx.tokenAmount, feeAmount, txHash, pending);
+                      let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
                       allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
                     } else if (tx.txType == TxType.Transfer) {
@@ -362,10 +417,10 @@ export class HistoryStorage {
                           let rec: HistoryRecord;
                           if (memo.inNotes.find((obj) => { return obj.index === index})) {
                             // a special case: loopback transfer
-                            rec = new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, destAddr, destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash, pending);
+                            rec = HistoryRecord.transferLoopback(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
                           } else {
                             // regular transfer to another person
-                            rec = new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), txHash, pending);
+                            rec = HistoryRecord.transferOut(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
                           }
                           
                           allRecords.push(HistoryRecordIdx.create(rec, index));
@@ -374,7 +429,7 @@ export class HistoryStorage {
                         // 2. somebody initiated it => incoming tx(s)
                         for (let {note, index} of memo.inNotes) {
                           const destAddr = assembleAddress(note.d, note.p_d);
-                          let rec = new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", destAddr, BigInt(note.b), BigInt(0), txHash, pending);
+                          let rec = HistoryRecord.transferIn(destAddr, BigInt(note.b), BigInt(0), ts, txHash, pending);
                           allRecords.push(HistoryRecordIdx.create(rec, index));
                         }
                       }
@@ -382,9 +437,12 @@ export class HistoryStorage {
                       // withdrawal transaction (destination address in the memoblock)
                       const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
 
-                      let rec = new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", withdrawDestAddr, -(tx.tokenAmount + feeAmount), feeAmount, txHash, pending);
+                      let rec = HistoryRecord.withdraw(withdrawDestAddr, -(tx.tokenAmount + feeAmount), feeAmount, ts, txHash, pending);
                       allRecords.push(HistoryRecordIdx.create(rec, memo.index));
                     }
+
+                    // if we found txHash in the blockchain -> remove it from the saved tx array
+                    this.sendedTxs.delete(txHash);
 
                     return allRecords;
 
@@ -398,6 +456,13 @@ export class HistoryStorage {
           }
 
           throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
+      } else {
+        // Look for a transactions, initiated by the user and try to convert it to the HistoryRecord
+        let sendedRecords = this.sendedTxs[txHash];
+        if (sendedRecords !== undefined) {
+          console.log(`HistoryStorage: hash ${txHash} doesn't found, but it corresponds to the previously saved ${sendedRecords.length} transaction(s)`);
+          return sendedRecords.map((oneRecord, index) => HistoryRecordIdx.create(oneRecord, memo.index + index));
+        }
       }
 
       //throw new Error(`Unable to get transaction details (${txHash})`);

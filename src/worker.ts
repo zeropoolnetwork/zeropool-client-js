@@ -35,7 +35,7 @@ const obj = {
       treeParams = Params.fromBinaryExtended(new Uint8Array(treeParamsData!), false, false);
     }
 
-    txParser = TxParser.new()
+    txParser = TxParser._new()
     console.info('Web worker init complete.');
   },
 

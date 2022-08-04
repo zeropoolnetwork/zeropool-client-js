@@ -49,6 +49,10 @@ export class ZkBobState {
     return this.account.getUsableNotes();
   }
 
+  public isOwnAddress(shieldedAddress: string): boolean {
+    return this.account.isOwnAddress(shieldedAddress);
+  }
+
   public rawState(): any {
     return this.account.getWholeState();
   }
