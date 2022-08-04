@@ -1,7 +1,7 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
+import { ethAddrToBuf, toCompactSignature, truncateHexPrefix } from './utils';
 import { ZkBobState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -11,16 +11,21 @@ import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
 const MIN_TX_AMOUNT = BigInt(10000000);
 const TX_FEE = BigInt(10000000);
+const BATCH_SIZE = 100;
 
 export interface RelayerInfo {
   root: string;
+  optimisticRoot: string;
   deltaIndex: string;
+  optimisticDeltaIndex: string;
 }
 
 export interface BatchResult {
   txCount: number;
   maxMinedIndex: number;
   maxPendingIndex: number;
+  state: Map<number, StateUpdate>;  // key: first tx index, 
+                                    // value: StateUpdate object (notes, accounts, leafs and comminments)
 }
 
 export interface TxAmount { // all values are in Gwei
@@ -192,11 +197,11 @@ export class ZkBobClient {
   // Get total balance including transactions in optimistic state [in Gwei]
   // There is no option to prevent state update here,
   // because we should always monitor optimistic state
-  public async getOptimisticTotalBalance(tokenAddress: string): Promise<bigint> {
+  public async getOptimisticTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
     const state = this.zpStates[tokenAddress];
 
-    const confirmedBalance = await this.getTotalBalance(tokenAddress);
-    const historyRecords = await this.getAllHistory(tokenAddress);
+    const confirmedBalance = await this.getTotalBalance(tokenAddress, updateState);
+    const historyRecords = await this.getAllHistory(tokenAddress, updateState);
 
     let pendingDelta = BigInt(0);
     for (const oneRecord of historyRecords) {
@@ -295,7 +300,7 @@ export class ZkBobClient {
     let txData;
     if (fromAddress) {
       const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
-      const holder = hexToBuf(fromAddress);
+      const holder = ethAddrToBuf(fromAddress);
       txData = await state.account.createDepositPermittable({ 
         amount: (amountGwei + feeGwei).toString(),
         fee: feeGwei.toString(),
@@ -400,7 +405,7 @@ export class ZkBobClient {
       throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
     }
 
-    const addressBin = hexToBuf(address);
+    const addressBin = ethAddrToBuf(address);
 
     const transfers = txParts.map(({amount, fee, accountLimit}) => {
       const oneTransfer: IWithdrawData = {
@@ -544,7 +549,7 @@ export class ZkBobClient {
     await this.updateState(tokenAddress);
 
     const txType = TxType.Withdraw;
-    const addressBin = hexToBuf(address);
+    const addressBin = ethAddrToBuf(address);
 
     const txData = await state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
@@ -774,30 +779,32 @@ export class ZkBobClient {
   // Currently it's just a workaround
   private async updateStateOptimisticWorker(tokenAddress: string): Promise<boolean> {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
-    const BATCH_SIZE = 10000;
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
     const startIndex = Number(zpState.account.nextTreeIndex());
-    const nextIndex = Number((await info(token.relayerUrl)).deltaIndex);
-    // TODO: it's just a workaroud while relayer doesn't return optimistic index!
-    const optimisticIndex = nextIndex + 1;
+
+    const stateInfo = await info(token.relayerUrl);
+    const nextIndex = Number(stateInfo.deltaIndex);
+    const optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
 
     if (optimisticIndex > startIndex) {
       const startTime = Date.now();
       
-      console.log(`⬇ Fetching transactions between ${startIndex} and ${nextIndex}...`);
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       
       let batches: Promise<BatchResult>[] = [];
 
       let readyToTransact = true;
 
-      for (let i = startIndex; i <= nextIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
+      for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
+
+          let batchState = new Map<number, StateUpdate>();
           
           let txHashes: Record<number, string> = {};
           let indexedTxs: IndexedTx[] = [];
@@ -842,9 +849,10 @@ export class ZkBobClient {
           }
 
           if (indexedTxs.length > 0) {
-            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
+            const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
             const decryptedMemos = parseResult.decryptedMemos;
-            state.account.updateState(parseResult.stateUpdate);
+            batchState.set(i, parseResult.stateUpdate);
+            //state.account.updateState(parseResult.stateUpdate);
             this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
             for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
               // save memos corresponding to the our account to restore history
@@ -855,7 +863,7 @@ export class ZkBobClient {
           }
 
           if (indexedTxsPending.length > 0) {
-            const parseResult = await this.worker.parseTxs(this.config.sk, indexedTxsPending);
+            const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxsPending);
             const decryptedPendingMemos = parseResult.decryptedMemos;
             for (let idx = 0; idx < decryptedPendingMemos.length; ++idx) {
               // save memos corresponding to the our account to restore history
@@ -871,19 +879,31 @@ export class ZkBobClient {
             }
           }
 
-          return {txCount: txs.length, maxMinedIndex, maxPendingIndex} ;
+          return {txCount: txs.length, maxMinedIndex, maxPendingIndex, state: batchState} ;
         });
         batches.push(oneBatch);
       };
 
-      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1}
+      let totalState = new Map<number, StateUpdate>();
+      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1, state: totalState};
       let totalRes = (await Promise.all(batches)).reduce((acc, cur) => {
         return {
           txCount: acc.txCount + cur.txCount,
           maxMinedIndex: Math.max(acc.maxMinedIndex, cur.maxMinedIndex),
           maxPendingIndex: Math.max(acc.maxPendingIndex, cur.maxPendingIndex),
+          state: new Map([...Array.from(acc.state.entries()), ...Array.from(cur.state.entries())]),
         }
       }, initRes);
+
+      let idxs = [...totalRes.state.keys()].sort((i1, i2) => i1 - i2);
+      for (let idx of idxs) {
+        let oneStateUpdate = totalRes.state.get(idx);
+        if (oneStateUpdate !== undefined) {
+          state.account.updateState(oneStateUpdate);
+        } else {
+          throw Error(`Cannot find state batch at index ${idx}`);
+        }
+      }
 
       // remove unneeded pending records
       zpState.history.setLastMinedTxIndex(totalRes.maxMinedIndex);
@@ -897,6 +917,9 @@ export class ZkBobClient {
 
       return readyToTransact;
     } else {
+      zpState.history.setLastMinedTxIndex(nextIndex - OUTPLUSONE);
+      zpState.history.setLastPendingTxIndex(-1);
+
       console.log(`Local state is up to date @${startIndex}`);
 
       return true;
