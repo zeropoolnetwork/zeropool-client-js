@@ -1,4 +1,4 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult } from 'libzkbob-rs-wasm-web';
+import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
 import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
@@ -24,6 +24,8 @@ export interface BatchResult {
   txCount: number;
   maxMinedIndex: number;
   maxPendingIndex: number;
+  state: Map<number, StateUpdate>;  // key: first tx index, 
+                                    // value: StateUpdate object (notes, accounts, leafs and comminments)
 }
 
 export interface TxAmount { // all values are in Gwei
@@ -801,6 +803,8 @@ export class ZkBobClient {
       for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
         let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
+
+          let batchState = new Map<number, StateUpdate>();
           
           let txHashes: Record<number, string> = {};
           let indexedTxs: IndexedTx[] = [];
@@ -847,7 +851,8 @@ export class ZkBobClient {
           if (indexedTxs.length > 0) {
             const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
             const decryptedMemos = parseResult.decryptedMemos;
-            state.account.updateState(parseResult.stateUpdate);
+            batchState.set(i, parseResult.stateUpdate);
+            //state.account.updateState(parseResult.stateUpdate);
             this.logStateSync(i, i + txs.length * OUTPLUSONE, decryptedMemos);
             for (let decryptedMemoIndex = 0; decryptedMemoIndex < decryptedMemos.length; ++decryptedMemoIndex) {
               // save memos corresponding to the our account to restore history
@@ -874,19 +879,31 @@ export class ZkBobClient {
             }
           }
 
-          return {txCount: txs.length, maxMinedIndex, maxPendingIndex} ;
+          return {txCount: txs.length, maxMinedIndex, maxPendingIndex, state: batchState} ;
         });
         batches.push(oneBatch);
       };
 
-      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1}
+      let totalState = new Map<number, StateUpdate>();
+      let initRes: BatchResult = {txCount: 0, maxMinedIndex: -1, maxPendingIndex: -1, state: totalState};
       let totalRes = (await Promise.all(batches)).reduce((acc, cur) => {
         return {
           txCount: acc.txCount + cur.txCount,
           maxMinedIndex: Math.max(acc.maxMinedIndex, cur.maxMinedIndex),
           maxPendingIndex: Math.max(acc.maxPendingIndex, cur.maxPendingIndex),
+          state: new Map([...Array.from(acc.state.entries()), ...Array.from(cur.state.entries())]),
         }
       }, initRes);
+
+      let idxs = [...totalRes.state.keys()].sort((i1, i2) => i1 - i2);
+      for (let idx of idxs) {
+        let oneStateUpdate = totalRes.state.get(idx);
+        if (oneStateUpdate !== undefined) {
+          state.account.updateState(oneStateUpdate);
+        } else {
+          throw Error(`Cannot find state batch at index ${idx}`);
+        }
+      }
 
       // remove unneeded pending records
       zpState.history.setLastMinedTxIndex(totalRes.maxMinedIndex);
