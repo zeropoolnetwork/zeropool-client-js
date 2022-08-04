@@ -42,6 +42,14 @@ export interface TxToRelayer {
   depositSignature?: string
 }
 
+export interface JobInfo {
+  state: string;
+  txHash: string[];
+  createdOn: BigInt;
+  finishedOn?: BigInt;
+  failedReason?: string;
+}
+
 export interface FeeAmount { // all values are in Gwei
   total: bigint;    // total fee
   totalPerTx: bigint; // multitransfer case (== total for regular tx)
@@ -85,7 +93,7 @@ async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise
   return json.jobId;
 }
 
-async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string[] } | null> {
+async function getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
   const url = new URL(`/job/${id}`, relayerUrl);
   const headers = {'content-type': 'application/json;charset=UTF-8'};
   const res = await (await fetch(url.toString(), {headers})).json();
@@ -255,6 +263,7 @@ export class ZkBobClient {
   // return transaction(s) hash(es) on success or throw an error
   public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
     const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
 
     const INTERVAL_MS = 1000;
     let hashes: string[];
@@ -265,7 +274,7 @@ export class ZkBobClient {
         console.error(`Job ${jobId} not found.`);
         throw new Error(`Job ${jobId} not found`);
       } else if (job.state === 'failed') {
-        throw new Error(`Transaction [job ${jobId}] failed`);
+        throw new Error(`Transaction [job ${jobId}] failed with reason: '${job.failedReason}'`);
       } else if (job.state === 'completed') {
         hashes = job.txHash;
         break;
@@ -273,6 +282,9 @@ export class ZkBobClient {
 
       await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
     }
+
+    state.history.setTxHashesForQueuedTransactions(jobId, hashes);
+    
 
     console.info(`Transaction [job ${jobId}] successful: ${hashes.join(", ")}`);
 
@@ -332,7 +344,14 @@ export class ZkBobClient {
       }
 
       let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
-      return await sendTransactions(token.relayerUrl, [tx]);
+      const jobId = await sendTransactions(token.relayerUrl, [tx]);
+
+      // Temporary save transaction in the history module (to prevent history delays)
+      const ts = Math.floor(Date.now() / 1000);
+      let rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, "0", true);
+      state.history.keepQueuedTransactions([rec], jobId);
+
+      return jobId;
 
     } else {
       throw new Error('You must provide fromAddress for bridge deposit transaction ');
@@ -386,9 +405,19 @@ export class ZkBobClient {
     });
 
     const txs = await Promise.all(txPromises);
+    const jobId = await sendTransactions(token.relayerUrl, txs);
 
-    let jobId = await sendTransactions(token.relayerUrl, txs);
-    
+    // Temporary save transactions in the history module (to prevent history delays)
+    let recs = txParts.map(({amount, fee, accountLimit}, index) => {
+      const ts = Math.floor(Date.now() / 1000);
+      if (state.isOwnAddress(to)) {
+        return HistoryRecord.transferLoopback(to, amount, fee, ts, `${index}`, true);
+      } else {
+        return HistoryRecord.transferOut(to, amount, fee, ts, `${index}`, true);
+      }
+    });
+    state.history.keepQueuedTransactions(recs, jobId);
+
     return jobId;
   }
 
@@ -441,9 +470,15 @@ export class ZkBobClient {
     });
 
     const txs = await Promise.all(txPromises);
-
-    let jobId = await sendTransactions(token.relayerUrl, txs);
+    const jobId = await sendTransactions(token.relayerUrl, txs);
     
+    // Temporary save transactions in the history module (to prevent history delays)
+    let recs = txParts.map(({amount, fee, accountLimit}, index) => {
+      const ts = Math.floor(Date.now() / 1000);
+      return HistoryRecord.withdraw(address, amount, fee, ts, `${index}`, true);
+    });
+    state.history.keepQueuedTransactions(recs, jobId);
+
     return jobId;
   }
 
@@ -499,8 +534,16 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
+    const jobId = await sendTransactions(token.relayerUrl, [tx]);
 
-    return await sendTransactions(token.relayerUrl, [tx]);
+    if (fromAddress) {
+      // Temporary save transaction in the history module (to prevent history delays)
+      const ts = Math.floor(Date.now() / 1000);
+      let rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, "0", true);
+      state.history.keepQueuedTransactions([rec], jobId);
+    }
+
+    return jobId;
   }
 
   // DEPRECATED. Please use transferMulti method instead
@@ -537,7 +580,21 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
-    return await sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await sendTransactions(token.relayerUrl, [tx]);
+
+    // Temporary save transactions in the history module (to prevent history delays)
+    const feePerOut = feeGwei / BigInt(outGwei.length);
+    let recs = outGwei.map(({to, amount}) => {
+      const ts = Math.floor(Date.now() / 1000);
+      if (state.isOwnAddress(to)) {
+        return HistoryRecord.transferLoopback(to, BigInt(amount), feePerOut, ts, "0", true);
+      } else {
+        return HistoryRecord.transferOut(to, BigInt(amount), feePerOut, ts, "0", true);
+      }
+    });
+    state.history.keepQueuedTransactions(recs, jobId);
+
+    return jobId;
   }
 
   // DEPRECATED. Please use withdrawMulti methos instead
@@ -575,7 +632,14 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
-    return await sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await sendTransactions(token.relayerUrl, [tx]);
+
+    // Temporary save transaction in the history module (to prevent history delays)
+    const ts = Math.floor(Date.now() / 1000);
+    let rec = HistoryRecord.withdraw(address, amountGwei, feeGwei, ts, "0", true);
+    state.history.keepQueuedTransactions([rec], jobId);
+
+    return jobId;
   }
 
 
