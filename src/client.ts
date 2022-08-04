@@ -1,7 +1,7 @@
 import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { hexToBuf, toCompactSignature, truncateHexPrefix } from './utils';
+import { ethAddrToBuf, toCompactSignature, truncateHexPrefix } from './utils';
 import { ZkBobState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -300,7 +300,7 @@ export class ZkBobClient {
     let txData;
     if (fromAddress) {
       const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
-      const holder = hexToBuf(fromAddress);
+      const holder = ethAddrToBuf(fromAddress);
       txData = await state.account.createDepositPermittable({ 
         amount: (amountGwei + feeGwei).toString(),
         fee: feeGwei.toString(),
@@ -405,7 +405,7 @@ export class ZkBobClient {
       throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
     }
 
-    const addressBin = hexToBuf(address);
+    const addressBin = ethAddrToBuf(address);
 
     const transfers = txParts.map(({amount, fee, accountLimit}) => {
       const oneTransfer: IWithdrawData = {
@@ -549,7 +549,7 @@ export class ZkBobClient {
     await this.updateState(tokenAddress);
 
     const txType = TxType.Withdraw;
-    const addressBin = hexToBuf(address);
+    const addressBin = ethAddrToBuf(address);
 
     const txData = await state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),

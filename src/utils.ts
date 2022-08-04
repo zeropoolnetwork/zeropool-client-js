@@ -68,13 +68,25 @@ export function addHexPrefix(data: string): string {
   return data;
 }
 
-export function hexToBuf(hex: string): Uint8Array {
+export function ethAddrToBuf(address: string): Uint8Array {
+  return hexToBuf(address, 20);
+}
+
+// Convert input hex number to the bytes array
+// extend (leading zero-bytes) or trim (trailing bytes)
+// output buffer to the bytesCnt bytes (only when bytesCnt > 0)
+export function hexToBuf(hex: string, bytesCnt: number = 0): Uint8Array {
   if (hex.length % 2 !== 0) {
     throw new Error('Invalid hex string');
   }
 
   if (hex.startsWith('0x')) {
     hex = hex.slice(2);
+  }
+
+  if (bytesCnt > 0) {
+    const digitsNum = bytesCnt * 2;
+    hex = hex.slice(-digitsNum).padStart(digitsNum, '0');
   }
 
   const buffer = new Uint8Array(hex.length / 2);
