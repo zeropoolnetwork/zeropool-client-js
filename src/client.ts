@@ -54,7 +54,8 @@ async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: numb
   const url = new URL(`/transactions`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
   url.searchParams.set('offset', offset.toString());
-  const res = await (await fetch(url.toString())).json();
+  const headers = {'content-type': 'application/json;charset=UTF-8'};
+  const res = await (await fetch(url.toString(), {headers})).json();
 
   return res;
 }
@@ -63,7 +64,8 @@ async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, l
   const url = new URL(`/transactions/v2`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
   url.searchParams.set('offset', offset.toString());
-  const res = await (await fetch(url.toString())).json();
+  const headers = {'content-type': 'application/json;charset=UTF-8'};
+  const res = await (await fetch(url.toString(), {headers})).json();  
 
   return res;
 }
@@ -71,7 +73,8 @@ async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, l
 // returns transaction job ID
 async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
   const url = new URL('/sendTransactions', relayerUrl);
-  const res = await fetch(url.toString(), { method: 'POST', body: JSON.stringify(txs) });
+  const headers = {'content-type': 'application/json;charset=UTF-8'};
+  const res = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify(txs) });
 
   if (!res.ok) {
     const body = await res.json();
@@ -84,7 +87,8 @@ async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise
 
 async function getJob(relayerUrl: string, id: string): Promise<{ state: string, txHash: string[] } | null> {
   const url = new URL(`/job/${id}`, relayerUrl);
-  const res = await (await fetch(url.toString())).json();
+  const headers = {'content-type': 'application/json;charset=UTF-8'};
+  const res = await (await fetch(url.toString(), {headers})).json();
 
   if (typeof res === 'string') {
     return null;
@@ -95,7 +99,8 @@ async function getJob(relayerUrl: string, id: string): Promise<{ state: string, 
 
 async function info(relayerUrl: string): Promise<RelayerInfo> {
   const url = new URL('/info', relayerUrl);
-  const res = await fetch(url.toString());
+  const headers = {'content-type': 'application/json;charset=UTF-8'};
+  const res = await fetch(url.toString(), {headers});
 
   return await res.json();
 }
