@@ -436,6 +436,8 @@ export class ZkBobClient {
       };
       const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState);
 
+      console.log(`Transaction created: delta_index = ${oneTxData.parsed_delta.index}, root = ${oneTxData.public.root}`);
+
       const startProofDate = Date.now();
       const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
       const proofTime = (Date.now() - startProofDate) / 1000;
