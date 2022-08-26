@@ -164,7 +164,7 @@ export class ZkBobClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZkBobState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
+      client.zpStates[address] = await ZkBobState.create(config.sk, networkName, config.network.getRpcUrl(), denominator);
     }
 
     return client;
@@ -858,6 +858,42 @@ export class ZkBobClient {
     }
 
     return result;
+  }
+
+  // The deposit amount is limited by few factors:
+  // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
+  // Limits are fetched from the relayer (except actual deposits from the address)
+  public async getMaxAvailableDeposit(tokenAddress: string, fromAddress: string): Promise<bigint> {
+    const token = this.tokens[tokenAddress];
+
+    const wei = await this.config.network.tokenTransferedAmount(tokenAddress, fromAddress, token.poolAddress);
+    const depositedInLastDay = this.weiToShieldedAmount(tokenAddress, wei);
+
+    // These values should be fetched from the relayer
+    const singleDepositLimit = 10000000000000;    // 10k tokens
+    const singleAddressDayLimit = 10000000000000; // 10k tokens
+    const allDepositsLimit = 100000000000000;     // 100k tokens
+    const poolLimit = 1000000000000000;           // 1kk tokens
+
+    const allLimits = [
+      singleDepositLimit,
+      singleAddressDayLimit - Number(depositedInLastDay),
+      allDepositsLimit,
+      poolLimit
+    ];
+
+    let minLimit = Math.min(...allLimits);
+    return BigInt(minLimit >= 0 ? minLimit : 0);
+  }
+
+  public async getMaxAvailableWithdraw(tokenAddress: string, toAddress: string): Promise<bigint> {
+    // These values should be fetched from the relayer
+    const allWithdrawLimit = 100000000000000;     // 100k tokens
+
+    const allLimits = [allWithdrawLimit];
+
+    let minLimit = Math.min(...allLimits);
+    return BigInt(minLimit >= 0 ? minLimit : 0);
   }
 
   // ------------------=========< State Processing >=========-------------------
