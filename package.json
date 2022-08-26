@@ -24,7 +24,8 @@
     "regenerator-runtime": "^0.13.9",
     "web3": "^1.7.0",
     "web3-eth-personal": "^1.7.0",
-    "web3-utils": "^1.7.0"
+    "web3-utils": "^1.7.0",
+    "ethereum-block-by-date": "^1.4.5"
   },
   "devDependencies": {
     "ts-loader": "^9.2.6",
