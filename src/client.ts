@@ -302,6 +302,36 @@ export class ZkBobClient {
     return hashes;
   }
 
+  // Waiting while relayer includes the job transaction in the optimistic state
+  // return transaction(s) hash(es) on success or throw an error
+  // TODO: change job state logic after relayer upgrade! <look for a `queued` state>
+  public async waitJobQueued(tokenAddress: string, jobId: string): Promise<boolean> {
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    const INTERVAL_MS = 1000;
+    let hashes: string[];
+    while (true) {
+      const job = await getJob(token.relayerUrl, jobId);
+
+      if (job === null) {
+        console.error(`Job ${jobId} not found.`);
+        throw new Error(`Job ${jobId} not found`);
+      } else if (job.state === 'failed') {
+        throw new Error(`Transaction [job ${jobId}] failed with reason: '${job.failedReason}'`);
+      } else if (job.state === 'completed') {
+        hashes = job.txHash;
+        break;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+    }
+
+    console.info(`Transaction [job ${jobId}] in optimistic state now`);
+
+    return true;
+  }
+
   // ------------------=========< Making Transactions >=========-------------------
   // | Methods for creating and sending transactions in different modes           |
   // ------------------------------------------------------------------------------
@@ -373,7 +403,7 @@ export class ZkBobClient {
   // Transfer shielded funds to the shielded address
   // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
   // // Returns jobId from the relayer or throw an Error
-  public async transferMulti(tokenAddress: string, to: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string> {
+  public async transferMulti(tokenAddress: string, to: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string[]> {
     const state = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
@@ -391,20 +421,25 @@ export class ZkBobClient {
       throw new Error('Cannot find appropriate multitransfer configuration (insufficient funds?)');
     }
 
-    const transfers = txParts.map(({amount, fee, accountLimit}) => {
-      const oneTransfer: ITransferData = {
-        outputs: [{to, amount: amount.toString()}],
-        fee: fee.toString(),
+    var jobsIds: string[] = [];
+    var optimisticState: StateUpdate = {
+      newLeafs: [],
+      newCommitments: [],
+      newAccounts: [],
+      newNotes: [],
+    }
+    for (let index = 0; index < txParts.length; index++) {
+      const onePart = txParts[index];
+      const oneTx: ITransferData = {
+        outputs: [{to, amount: onePart.amount.toString()}],
+        fee: onePart.fee.toString(),
       };
+      const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState);
 
-      return oneTransfer;
-    });
+      console.log(`Transaction created: delta_index = ${oneTxData.parsed_delta.index}, root = ${oneTxData.public.root}`);
 
-    const txsData = await state.account.createMultiTransfer(transfers);
-
-    const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
-      const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
+      const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
@@ -413,31 +448,38 @@ export class ZkBobClient {
         throw new Error('invalid tx proof');
       }
 
-      return {memo: transfer.memo, proof: txProof, txType: TxType.Transfer};
-    });
+      const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Transfer};
 
-    const txs = await Promise.all(txPromises);
-    const jobId = await sendTransactions(token.relayerUrl, txs);
+      const jobId = await sendTransactions(token.relayerUrl, [transaction]);
+      jobsIds.push(jobId);
 
-    // Temporary save transactions in the history module (to prevent history delays)
-    let recs = txParts.map(({amount, fee, accountLimit}, index) => {
+      // Temporary save transaction part in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
+      var record;
       if (state.isOwnAddress(to)) {
-        return HistoryRecord.transferLoopback(to, amount, fee, ts, `${index}`, true);
+        record = HistoryRecord.transferLoopback(to, onePart.amount, onePart.fee, ts, `${index}`, true);
       } else {
-        return HistoryRecord.transferOut(to, amount, fee, ts, `${index}`, true);
+        record = HistoryRecord.transferOut(to, onePart.amount, onePart.fee, ts, `${index}`, true);
       }
-    });
-    state.history.keepQueuedTransactions(recs, jobId);
+      state.history.keepQueuedTransactions([record], jobId);
 
-    return jobId;
+      if (index < (txParts.length - 1)) {
+        console.log(`Waiting while job ${jobId} queued by relayer`);
+        // if there are few additional tx, we should collect the optimistic state before processing them
+        await this.waitJobQueued(tokenAddress, jobId);
+
+        optimisticState = await this.getNewState(tokenAddress);
+      }
+    }
+
+    return jobsIds;
   }
 
   // Withdraw shielded funds to the specified native chain address
   // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
   // feeGwei - fee per single transaction (request it with atomicTxFee method)
   // Returns jobId from the relayer or throw an Error
-  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string> {
+  public async withdrawMulti(tokenAddress: string, address: string, amountGwei: bigint, feeGwei: bigint = BigInt(0)): Promise<string[]> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
@@ -465,11 +507,27 @@ export class ZkBobClient {
       return oneTransfer;
     });
 
-    const txsData = await state.account.createMultiWithdraw(transfers);
+    ///////
+    var jobsIds: string[] = [];
+    var optimisticState: StateUpdate = {
+      newLeafs: [],
+      newCommitments: [],
+      newAccounts: [],
+      newNotes: [],
+    }
+    for (let index = 0; index < txParts.length; index++) {
+      const onePart = txParts[index];
+      const oneTx: IWithdrawData = {
+        amount: onePart.amount.toString(),
+        fee: onePart.fee.toString(),
+        to: addressBin,
+        native_amount: '0',
+        energy_amount: '0',
+      };
+      const oneTxData = await state.account.createWithdrawalOptimistic(oneTx, optimisticState);
 
-    const txPromises: Promise<TxToRelayer>[] = txsData.map(async (transfer) => {
       const startProofDate = Date.now();
-      const txProof: Proof = await this.worker.proveTx(transfer.public, transfer.secret);
+      const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
       const proofTime = (Date.now() - startProofDate) / 1000;
       console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
@@ -478,20 +536,26 @@ export class ZkBobClient {
         throw new Error('invalid tx proof');
       }
 
-      return {memo: transfer.memo, proof: txProof, txType: TxType.Withdraw};
-    });
+      const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Withdraw};
 
-    const txs = await Promise.all(txPromises);
-    const jobId = await sendTransactions(token.relayerUrl, txs);
-    
-    // Temporary save transactions in the history module (to prevent history delays)
-    let recs = txParts.map(({amount, fee, accountLimit}, index) => {
+      const jobId = await sendTransactions(token.relayerUrl, [transaction]);
+      jobsIds.push(jobId);
+
+      // Temporary save transaction part in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
-      return HistoryRecord.withdraw(address, amount, fee, ts, `${index}`, true);
-    });
-    state.history.keepQueuedTransactions(recs, jobId);
+      var record = HistoryRecord.withdraw(address, onePart.amount, onePart.fee, ts, `${index}`, true);
+      state.history.keepQueuedTransactions([record], jobId);
 
-    return jobId;
+      if (index < (txParts.length - 1)) {
+        console.log(`Waiting while job ${jobId} queued by relayer`);
+        // if there are few additional tx, we should collect the optimistic state before processing them
+        await this.waitJobQueued(tokenAddress, jobId);
+
+        optimisticState = await this.getNewState(tokenAddress);
+      }
+    }
+
+    return jobsIds;
   }
 
   // DEPRECATED. Please use depositPermittableV2 method instead
@@ -1070,6 +1134,72 @@ export class ZkBobClient {
       console.log(`Local state is up to date @${startIndex}`);
 
       return true;
+    }
+  }
+
+  // Just fetch and process the new state without local state updating
+  // Return StateUpdate object
+  // This method used for multi-tx
+  public async getNewState(tokenAddress: string): Promise<StateUpdate> {
+    const OUTPLUSONE = CONSTANTS.OUT + 1;
+
+    const zpState = this.zpStates[tokenAddress];
+    const token = this.tokens[tokenAddress];
+    const state = this.zpStates[tokenAddress];
+
+    const startIndex = zpState.account.nextTreeIndex();
+
+    const stateInfo = await info(token.relayerUrl);
+    const optimisticIndex = BigInt(stateInfo.optimisticDeltaIndex);
+
+    if (optimisticIndex > startIndex) {
+      const startTime = Date.now();
+      
+      console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
+
+      const numOfTx = Number((optimisticIndex - startIndex) / BigInt(OUTPLUSONE));
+      let stateUpdate = fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then( async txs => {
+        console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
+        
+        let indexedTxs: IndexedTx[] = [];
+
+        for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
+          const tx = txs[txIdx];
+          // Get the first leaf index in the tree
+          const memo_idx = Number(startIndex) + txIdx * OUTPLUSONE;
+          
+          // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
+          // 1. Extract memo block
+          const memo = tx.slice(129); // Skip mined flag, txHash and commitment
+
+          // 2. Get transaction commitment
+          const commitment = tx.substr(65, 64)
+          
+          const indexedTx: IndexedTx = {
+            index: memo_idx,
+            memo: memo,
+            commitment: commitment,
+          }
+
+          // 3. add indexed tx
+          indexedTxs.push(indexedTx);
+        }
+
+        const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
+
+        return parseResult.stateUpdate;
+      });
+
+      const msElapsed = Date.now() - startTime;
+      const avgSpeed = msElapsed / numOfTx;
+
+      console.log(`Fetch finished in ${msElapsed / 1000} sec | ${numOfTx} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+
+      return stateUpdate;
+    } else {
+      console.log(`Do not need to fetch @${startIndex}`);
+
+      return {newLeafs: [], newCommitments: [], newAccounts: [], newNotes: []};
     }
   }
 
