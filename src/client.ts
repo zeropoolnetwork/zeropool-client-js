@@ -592,7 +592,6 @@ export class ZeropoolClient {
     // regular deposit through approve allowance: sign transaction nullifier
     let dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
 
-    // TODO: Sign fromAddress as well?
     const signature = truncateHexPrefix(await sign(dataToSign));
 
     // now we can restore actual depositer address and check it for limits
