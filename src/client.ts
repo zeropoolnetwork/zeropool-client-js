@@ -347,6 +347,17 @@ export class ZkBobClient {
     return state.account.generateAddress();
   }
 
+  // Waiting while relayer process the jobs set
+  public async waitJobsCompleted(tokenAddress: string, jobIds: string[]): Promise<{jobId: string, txHash: string}[]> {
+    const token = this.tokens[tokenAddress];
+    let promises = jobIds.map(async (jobId) => {
+      const txHashes: string[] = await this.waitJobCompleted(tokenAddress, jobId);
+      return { jobId, txHash: txHashes[0] };
+    });
+    
+    return Promise.all(promises);
+  }
+
   // Waiting while relayer process the job
   // return transaction(s) hash(es) on success or throw an error
   public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
