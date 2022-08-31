@@ -85,9 +85,9 @@ export class EvmNetwork implements NetworkBackend {
     public async tokenTransferedAmount(tokenAddress: string, from: string, to: string): Promise<bigint> {
         this.token.options.address = tokenAddress;
 
-        const dayAgo = new Date();
-        dayAgo.setDate(dayAgo.getDate() - 1);
-        let dateBlock = await this.dater.getDate(dayAgo, true, false);
+        const startOfDayUTC = new Date();
+        startOfDayUTC.setUTCHours(0, 0, 0, 0);
+        let dateBlock = await this.dater.getDate(startOfDayUTC, true, false);
         const fromBlock = dateBlock.block;
         const toBlock =await this.web3.eth.getBlockNumber();
 

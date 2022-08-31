@@ -58,6 +58,41 @@ export interface FeeAmount { // all values are in Gwei
   l1: bigint;       // L1 fee component
 }
 
+export interface Limit { // all values are in Gwei
+  total: bigint;
+  available: bigint;
+}
+
+export interface PoolLimits { // all values are in Gwei
+  deposit: {
+    total: bigint;
+    components: {
+      singleOperation: bigint;
+      daylyForAddress: Limit;
+      daylyForAll: Limit;
+      poolLimit: Limit;
+    };
+  };
+  withdraw: {
+    total: bigint;
+    components: {
+      daylyForAll: Limit;
+    };
+  }
+}
+
+export interface DepositLimitsFetch {
+  singleOperation: bigint;
+  daylyForAddress: bigint;
+  daylyForAll: Limit;
+  poolLimit: Limit;
+}
+
+export interface WithdrawLimitsFetch {
+  daylyForAll: Limit;
+}
+
+
 async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
   const url = new URL(`/transactions`, relayerUrl);
   url.searchParams.set('limit', limit.toString());
@@ -121,6 +156,48 @@ async function fee(relayerUrl: string): Promise<bigint> {
     return BigInt(res.fee);
   } catch {
     return DEFAULT_TX_FEE;
+  }
+}
+
+async function depositLimits(relayerUrl: string): Promise<DepositLimitsFetch> {
+  try {
+    const url = new URL('/limits/deposit', relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+    return res;
+  } catch (e) {
+    console.error(`Cannot fetch deposit limits from the relayer (${e}). The hardcoded values will be used. The transactions may be reverted`);
+    // hardcoded values
+    return {
+      singleOperation: BigInt(10000000000000),  // 10k tokens
+      daylyForAddress: BigInt(10000000000000),  // 10k tokens
+      daylyForAll: {
+        total:      BigInt(100000000000000),  // 100k tokens
+        available:  BigInt(100000000000000),  // 100k tokens
+      },
+      poolLimit: {
+        total:      BigInt(1000000000000000), // 1kk tokens
+        available:  BigInt(1000000000000000), // 1kk tokens
+      },
+    };
+  }
+}
+
+async function withdrawLimits(relayerUrl: string): Promise<WithdrawLimitsFetch> {
+  try {
+    const url = new URL('/limits/withdraw', relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+    return res;
+  } catch (e) {
+    console.error(`Cannot fetch withdraw limits from the relayer (${e}). The hardcoded values will be used. The transactions may be reverted`);
+    // hardcoded values
+    return {
+      daylyForAll: {
+        total:      BigInt(100000000000000),  // 100k tokens
+        available:  BigInt(100000000000000),  // 100k tokens
+      },
+    };
   }
 }
 
@@ -924,30 +1001,55 @@ export class ZkBobClient {
     return result;
   }
 
-  // The deposit amount is limited by few factors:
+  // The deposit and withdraw amount is limited by few factors:
   // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
-  // Limits are fetched from the relayer (except actual deposits from the address)
-  public async getMaxAvailableDeposit(tokenAddress: string, fromAddress: string): Promise<bigint> {
+  // Global limits are fetched from the relayer (except personal deposit limit from the specified address)
+  public async getLimits(tokenAddress: string, fromAddress: string): Promise<PoolLimits> {
     const token = this.tokens[tokenAddress];
 
-    const wei = await this.config.network.tokenTransferedAmount(tokenAddress, fromAddress, token.poolAddress);
-    const depositedInLastDay = this.weiToShieldedAmount(tokenAddress, wei);
+    const depositedFromAddressWei = await this.config.network.tokenTransferedAmount(tokenAddress, fromAddress, token.poolAddress);
+    const depositLimitsFromRelayer = await depositLimits(token.relayerUrl);
+    const withdrawLimitsFromRelayer = await withdrawLimits(token.relayerUrl);
 
-    // These values should be fetched from the relayer
-    const singleDepositLimit = 10000000000000;    // 10k tokens
-    const singleAddressDayLimit = 10000000000000; // 10k tokens
-    const allDepositsLimit = 100000000000000;     // 100k tokens
-    const poolLimit = 1000000000000000;           // 1kk tokens
 
-    const allLimits = [
-      singleDepositLimit,
-      singleAddressDayLimit - Number(depositedInLastDay),
-      allDepositsLimit,
-      poolLimit
+    const depositedInLastDay = this.weiToShieldedAmount(tokenAddress, depositedFromAddressWei);
+
+    // helper
+    const bigIntMin = (...args: bigint[]) => args.reduce((m, e) => e < m ? e : m);
+
+    // Calculate deposit limits
+    const allDepositLimits = [
+      depositLimitsFromRelayer.singleOperation,
+      depositLimitsFromRelayer.daylyForAddress - depositedInLastDay,
+      depositLimitsFromRelayer.daylyForAll.available,
+      depositLimitsFromRelayer.poolLimit.available,
     ];
+    let totalDepositLimit = bigIntMin(...allDepositLimits);
 
-    let minLimit = Math.min(...allLimits);
-    return BigInt(minLimit >= 0 ? minLimit : 0);
+    // Calculate withdraw limits
+    const allWithdrawLimits = [ withdrawLimitsFromRelayer.daylyForAll.available ];
+    let totalWithdrawLimit = bigIntMin(...allWithdrawLimits);
+
+    return {
+      deposit: {
+        total: totalDepositLimit >= 0 ? totalDepositLimit : BigInt(0),
+        components: {
+          singleOperation: depositLimitsFromRelayer.singleOperation,
+          daylyForAddress: {
+            total: depositLimitsFromRelayer.daylyForAddress,
+            available: depositLimitsFromRelayer.daylyForAddress - depositedInLastDay,
+          },
+          daylyForAll: depositLimitsFromRelayer.daylyForAll,
+          poolLimit: depositLimitsFromRelayer.poolLimit,
+        }
+      },
+      withdraw: {
+        total: totalWithdrawLimit >= 0 ? totalWithdrawLimit : BigInt(0),
+        components: {
+          daylyForAll: withdrawLimitsFromRelayer.daylyForAll,
+        }
+      }
+    }
   }
 
   public async getMaxAvailableWithdraw(tokenAddress: string, toAddress: string): Promise<bigint> {
