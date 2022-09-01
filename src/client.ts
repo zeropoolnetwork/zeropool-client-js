@@ -58,69 +58,49 @@ export interface FeeAmount { // all values are in Gwei
   l1: bigint;       // L1 fee component
 }
 
-async function fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
-  const url = new URL(`/transactions`, relayerUrl);
-  url.searchParams.set('limit', limit.toString());
-  url.searchParams.set('offset', offset.toString());
-  const headers = {'content-type': 'application/json;charset=UTF-8'};
-  const res = await (await fetch(url.toString(), {headers})).json();
-
-  return res;
+export interface Limit { // all values are in Gwei
+  total: bigint;
+  available: bigint;
 }
 
-async function fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
-  const url = new URL(`/transactions/v2`, relayerUrl);
-  url.searchParams.set('limit', limit.toString());
-  url.searchParams.set('offset', offset.toString());
-  const headers = {'content-type': 'application/json;charset=UTF-8'};
-  const res = await (await fetch(url.toString(), {headers})).json();  
-
-  return res;
-}
-
-// returns transaction job ID
-async function sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
-  const url = new URL('/sendTransactions', relayerUrl);
-  const headers = {'content-type': 'application/json;charset=UTF-8'};
-  const res = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify(txs) });
-
-  if (!res.ok) {
-    const body = await res.json();
-    throw new Error(`Error ${res.status}: ${JSON.stringify(body)}`)
-  }
-
-  const json = await res.json();
-  return json.jobId;
-}
-
-async function getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
-  const url = new URL(`/job/${id}`, relayerUrl);
-  const headers = {'content-type': 'application/json;charset=UTF-8'};
-  const res = await (await fetch(url.toString(), {headers})).json();
-
-  if (typeof res === 'string') {
-    return null;
-  } else {
-    return res;
+export interface PoolLimits { // all values are in Gwei
+  deposit: {
+    total: bigint;
+    components: {
+      singleOperation: bigint;
+      daylyForAddress: Limit;
+      daylyForAll: Limit;
+      poolLimit: Limit;
+    };
+  };
+  withdraw: {
+    total: bigint;
+    components: {
+      daylyForAll: Limit;
+    };
   }
 }
 
-async function info(relayerUrl: string): Promise<RelayerInfo> {
-  const url = new URL('/info', relayerUrl);
-  const headers = {'content-type': 'application/json;charset=UTF-8'};
-  const res = await fetch(url.toString(), {headers});
-
-  return await res.json();
+export interface DepositLimitsFetch {
+  singleOperation: bigint;
+  daylyForAddress: bigint;
+  daylyForAll: Limit;
+  poolLimit: Limit;
 }
 
-async function fee(relayerUrl: string): Promise<bigint> {
-  try {
-    const url = new URL('/fee', relayerUrl);
-    const headers = {'content-type': 'application/json;charset=UTF-8'};
-    const res = await (await fetch(url.toString(), {headers})).json();
-    return BigInt(res.fee);
-  } catch {
-    return DEFAULT_TX_FEE;
+export interface WithdrawLimitsFetch {
+  daylyForAll: Limit;
+}
+
+export interface LimitsFetch { 
+  deposit: {
+    singleOperation: bigint;
+    daylyForAddress: Limit;
+    daylyForAll: Limit;
+    poolLimit: Limit;
+  }
+  withdraw: {
+    daylyForAll: Limit;
   }
 }
 
@@ -270,6 +250,17 @@ export class ZkBobClient {
     return state.account.generateAddress();
   }
 
+  // Waiting while relayer process the jobs set
+  public async waitJobsCompleted(tokenAddress: string, jobIds: string[]): Promise<{jobId: string, txHash: string}[]> {
+    const token = this.tokens[tokenAddress];
+    let promises = jobIds.map(async (jobId) => {
+      const txHashes: string[] = await this.waitJobCompleted(tokenAddress, jobId);
+      return { jobId, txHash: txHashes[0] };
+    });
+    
+    return Promise.all(promises);
+  }
+
   // Waiting while relayer process the job
   // return transaction(s) hash(es) on success or throw an error
   public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
@@ -279,7 +270,7 @@ export class ZkBobClient {
     const INTERVAL_MS = 1000;
     let hashes: string[];
     while (true) {
-      const job = await getJob(token.relayerUrl, jobId);
+      const job = await this.getJob(token.relayerUrl, jobId);
 
       if (job === null) {
         console.error(`Job ${jobId} not found.`);
@@ -312,7 +303,7 @@ export class ZkBobClient {
     const INTERVAL_MS = 1000;
     let hashes: string[];
     while (true) {
-      const job = await getJob(token.relayerUrl, jobId);
+      const job = await this.getJob(token.relayerUrl, jobId);
 
       if (job === null) {
         console.error(`Job ${jobId} not found.`);
@@ -386,7 +377,7 @@ export class ZkBobClient {
       }
 
       let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
-      const jobId = await sendTransactions(token.relayerUrl, [tx]);
+      const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
       // Temporary save transaction in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
@@ -450,7 +441,7 @@ export class ZkBobClient {
 
       const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Transfer};
 
-      const jobId = await sendTransactions(token.relayerUrl, [transaction]);
+      const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
       jobsIds.push(jobId);
 
       // Temporary save transaction part in the history module (to prevent history delays)
@@ -538,7 +529,7 @@ export class ZkBobClient {
 
       const transaction = {memo: oneTxData.memo, proof: txProof, txType: TxType.Withdraw};
 
-      const jobId = await sendTransactions(token.relayerUrl, [transaction]);
+      const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
       jobsIds.push(jobId);
 
       // Temporary save transaction part in the history module (to prevent history delays)
@@ -609,7 +600,7 @@ export class ZkBobClient {
       }
 
       let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
-      const jobId = await sendTransactions(token.relayerUrl, [tx]);
+      const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
       // Temporary save transaction in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
@@ -675,7 +666,7 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
-    const jobId = await sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     if (fromAddress) {
       // Temporary save transaction in the history module (to prevent history delays)
@@ -721,7 +712,7 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
-    const jobId = await sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transactions in the history module (to prevent history delays)
     const feePerOut = feeGwei / BigInt(outGwei.length);
@@ -773,7 +764,7 @@ export class ZkBobClient {
     }
 
     let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
-    const jobId = await sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
     const ts = Math.floor(Date.now() / 1000);
@@ -825,7 +816,7 @@ export class ZkBobClient {
     if (this.relayerFee === undefined) {
       // fetch actual fee from the relayer
       const token = this.tokens[tokenAddress];
-      this.relayerFee = await fee(token.relayerUrl);
+      this.relayerFee = await this.fee(token.relayerUrl);
     }
 
     return this.relayerFee;
@@ -924,40 +915,97 @@ export class ZkBobClient {
     return result;
   }
 
-  // The deposit amount is limited by few factors:
+  // The deposit and withdraw amount is limited by few factors:
   // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
-  // Limits are fetched from the relayer (except actual deposits from the address)
-  public async getMaxAvailableDeposit(tokenAddress: string, fromAddress: string): Promise<bigint> {
+  // Global limits are fetched from the relayer (except personal deposit limit from the specified address)
+  public async getLimits(tokenAddress: string, address: string | undefined = undefined): Promise<PoolLimits> {
     const token = this.tokens[tokenAddress];
 
-    const wei = await this.config.network.tokenTransferedAmount(tokenAddress, fromAddress, token.poolAddress);
-    const depositedInLastDay = this.weiToShieldedAmount(tokenAddress, wei);
+    let currentLimits: LimitsFetch;
+    try {
+      currentLimits = await this.limits(token.relayerUrl, address)
+    } catch (e) {
+      console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
+      try {
+        const poolLimits = await this.config.network.poolLimits(token.poolAddress, address);
+        currentLimits = {
+          deposit: {
+            singleOperation: BigInt(poolLimits.depositCap),
+            daylyForAddress: {
+              total: BigInt(poolLimits.dailyUserDepositCap),
+              available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
+            },
+            daylyForAll: {
+              total:      BigInt(poolLimits.dailyDepositCap),
+              available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
+            },
+            poolLimit: {
+              total:      BigInt(poolLimits.tvlCap),
+              available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
+            },
+          },
+          withdraw: {
+            daylyForAll: {
+              total:      BigInt(poolLimits.dailyWithdrawalCap),
+              available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
+            },
+          }
+        };
+      } catch (err) {
+        console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
+        // hardcoded values
+        currentLimits = {
+          deposit: {
+            singleOperation: BigInt(10000000000000),  // 10k tokens
+            daylyForAddress: {
+              total: BigInt(10000000000000),  // 10k tokens
+              available: BigInt(10000000000000),  // 10k tokens
+            },
+            daylyForAll: {
+              total:      BigInt(100000000000000),  // 100k tokens
+              available:  BigInt(100000000000000),  // 100k tokens
+            },
+            poolLimit: {
+              total:      BigInt(1000000000000000), // 1kk tokens
+              available:  BigInt(1000000000000000), // 1kk tokens
+            },
+          },
+          withdraw: {
+            daylyForAll: {
+              total:      BigInt(100000000000000),  // 100k tokens
+              available:  BigInt(100000000000000),  // 100k tokens
+            },
+          }
+        };
+      }
+    }
 
-    // These values should be fetched from the relayer
-    const singleDepositLimit = 10000000000000;    // 10k tokens
-    const singleAddressDayLimit = 10000000000000; // 10k tokens
-    const allDepositsLimit = 100000000000000;     // 100k tokens
-    const poolLimit = 1000000000000000;           // 1kk tokens
+    // helper
+    const bigIntMin = (...args: bigint[]) => args.reduce((m, e) => e < m ? e : m);
 
-    const allLimits = [
-      singleDepositLimit,
-      singleAddressDayLimit - Number(depositedInLastDay),
-      allDepositsLimit,
-      poolLimit
+    // Calculate deposit limits
+    const allDepositLimits = [
+      currentLimits.deposit.singleOperation,
+      currentLimits.deposit.daylyForAddress.available,
+      currentLimits.deposit.daylyForAll.available,
+      currentLimits.deposit.poolLimit.available,
     ];
+    let totalDepositLimit = bigIntMin(...allDepositLimits);
 
-    let minLimit = Math.min(...allLimits);
-    return BigInt(minLimit >= 0 ? minLimit : 0);
-  }
+    // Calculate withdraw limits
+    const allWithdrawLimits = [ currentLimits.withdraw.daylyForAll.available ];
+    let totalWithdrawLimit = bigIntMin(...allWithdrawLimits);
 
-  public async getMaxAvailableWithdraw(tokenAddress: string, toAddress: string): Promise<bigint> {
-    // These values should be fetched from the relayer
-    const allWithdrawLimit = 100000000000000;     // 100k tokens
-
-    const allLimits = [allWithdrawLimit];
-
-    let minLimit = Math.min(...allLimits);
-    return BigInt(minLimit >= 0 ? minLimit : 0);
+    return {
+      deposit: {
+        total: totalDepositLimit >= 0 ? totalDepositLimit : BigInt(0),
+        components: currentLimits.deposit,
+      },
+      withdraw: {
+        total: totalWithdrawLimit >= 0 ? totalWithdrawLimit : BigInt(0),
+        components: currentLimits.withdraw,
+      }
+    }
   }
 
   // ------------------=========< State Processing >=========-------------------
@@ -1033,7 +1081,7 @@ export class ZkBobClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
 
-    const stateInfo = await info(token.relayerUrl);
+    const stateInfo = await this.info(token.relayerUrl);
     const nextIndex = Number(stateInfo.deltaIndex);
     const optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
 
@@ -1048,7 +1096,7 @@ export class ZkBobClient {
       let readyToTransact = true;
 
       for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-        let oneBatch = fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
+        let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then( async txs => {
           console.log(`Getting ${txs.length} transactions from index ${i}`);
 
           let batchState = new Map<number, StateUpdate>();
@@ -1185,7 +1233,7 @@ export class ZkBobClient {
 
     const startIndex = zpState.account.nextTreeIndex();
 
-    const stateInfo = await info(token.relayerUrl);
+    const stateInfo = await this.info(token.relayerUrl);
     const optimisticIndex = BigInt(stateInfo.optimisticDeltaIndex);
 
     if (optimisticIndex > startIndex) {
@@ -1194,7 +1242,7 @@ export class ZkBobClient {
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       const numOfTx = Number((optimisticIndex - startIndex) / BigInt(OUTPLUSONE));
-      let stateUpdate = fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then( async txs => {
+      let stateUpdate = this.fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then( async txs => {
         console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
         
         let indexedTxs: IndexedTx[] = [];
@@ -1257,5 +1305,110 @@ export class ZkBobClient {
     if (startIndex < endIndex) {
       console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${endIndex - OUTPLUSONE})`);
     }
+  }
+
+  // ------------------=========< Relayer interactions >=========-------------------
+  // | Methods to interact with the relayer                                        |
+  // -------------------------------------------------------------------------------
+  
+  private async fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
+    const url = new URL(`/transactions/v2`, relayerUrl);
+    url.searchParams.set('limit', limit.toString());
+    url.searchParams.set('offset', offset.toString());
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();  
+  
+    return res;
+  }
+  
+  // returns transaction job ID
+  private async sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
+    const url = new URL('/sendTransactions', relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify(txs) });
+  
+    if (!res.ok) {
+      const body = await res.json();
+      throw new Error(`Error ${res.status}: ${JSON.stringify(body)}`)
+    }
+  
+    const json = await res.json();
+    return json.jobId;
+  }
+  
+  private async getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
+    const url = new URL(`/job/${id}`, relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+  
+    if (typeof res === 'string') {
+      return null;
+    } else {
+      return res;
+    }
+  }
+  
+  private async info(relayerUrl: string): Promise<RelayerInfo> {
+    const url = new URL('/info', relayerUrl);
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await fetch(url.toString(), {headers});
+  
+    return await res.json();
+  }
+  
+  private async fee(relayerUrl: string): Promise<bigint> {
+    try {
+      const url = new URL('/fee', relayerUrl);
+      const headers = {'content-type': 'application/json;charset=UTF-8'};
+      const res = await (await fetch(url.toString(), {headers})).json();
+      return BigInt(res.fee);
+    } catch {
+      return DEFAULT_TX_FEE;
+    }
+  }
+  
+  private async limits(relayerUrl: string, address: string | undefined): Promise<LimitsFetch> {
+    const url = new URL('/limits', relayerUrl);
+    if (address !== undefined) {
+      url.searchParams.set('address', address);
+    }
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+    return res;
+  }
+  
+  private async depositLimits(relayerUrl: string): Promise<DepositLimitsFetch> {
+    try {
+      const url = new URL('/limits/deposit', relayerUrl);
+      const headers = {'content-type': 'application/json;charset=UTF-8'};
+      const res = await (await fetch(url.toString(), {headers})).json();
+      return res;
+    } catch (e) {
+      console.error(`Cannot fetch deposit limits from the relayer (${e}). The hardcoded values will be used. The transactions may be reverted`);
+      // hardcoded values
+      return {
+        singleOperation: BigInt(10000000000000),  // 10k tokens
+        daylyForAddress: BigInt(10000000000000),  // 10k tokens
+        daylyForAll: {
+          total:      BigInt(100000000000000),  // 100k tokens
+          available:  BigInt(100000000000000),  // 100k tokens
+        },
+        poolLimit: {
+          total:      BigInt(1000000000000000), // 1kk tokens
+          available:  BigInt(1000000000000000), // 1kk tokens
+        },
+      };
+    }
+  }
+
+  // DEPRECATED: use fetchTransactionsOptimistic to get actual state including optimistic state
+  private async fetchTransactions(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
+    const url = new URL(`/transactions`, relayerUrl);
+    url.searchParams.set('limit', limit.toString());
+    url.searchParams.set('offset', offset.toString());
+    const headers = {'content-type': 'application/json;charset=UTF-8'};
+    const res = await (await fetch(url.toString(), {headers})).json();
+  
+    return res;
   }
 }

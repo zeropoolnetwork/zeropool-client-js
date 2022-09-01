@@ -32,6 +32,58 @@ export class EvmNetwork implements NetworkBackend {
                 ],
                 payable: false,
                 type: 'function',
+            }, 
+            {
+                inputs: [{
+                    internalType: 'address',
+                    name: '_user',
+                    type: 'address',
+                }],
+                name: 'getLimitsFor',
+                outputs: [{
+                    components: [{
+                        internalType: 'uint256',
+                        name: 'tvlCap',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'tvl',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyDepositCap',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyDepositCapUsage',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyWithdrawalCap',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyWithdrawalCapUsage',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyUserDepositCap',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'dailyUserDepositCapUsage',
+                        type: 'uint256',
+                    }, {
+                        internalType: 'uint256',
+                        name: 'depositCap',
+                        type: 'uint256',
+                    }],
+                    internalType: 'struct ZkBobAccounting.Limits',
+                    name: '',
+                    type: 'tuple'
+                }],
+                stateMutability: 'view',
+                type: 'function',
             }
         ];
         this.contract = new this.web3.eth.Contract(abi) as Contract;
@@ -85,9 +137,9 @@ export class EvmNetwork implements NetworkBackend {
     public async tokenTransferedAmount(tokenAddress: string, from: string, to: string): Promise<bigint> {
         this.token.options.address = tokenAddress;
 
-        const dayAgo = new Date();
-        dayAgo.setDate(dayAgo.getDate() - 1);
-        let dateBlock = await this.dater.getDate(dayAgo, true, false);
+        const startOfDayUTC = new Date();
+        startOfDayUTC.setUTCHours(0, 0, 0, 0);
+        let dateBlock = await this.dater.getDate(startOfDayUTC, true, false);
         const fromBlock = dateBlock.block;
         const toBlock =await this.web3.eth.getBlockNumber();
 
@@ -105,5 +157,15 @@ export class EvmNetwork implements NetworkBackend {
         console.log(`Fetched transfers from block ${fromBlock}, to block ${toBlock}: ${totalTokensTranferred} wei in ${pastEvents.length} transactions`);
 
         return totalTokensTranferred;
+    }
+
+    public async poolLimits(contractAddress: string, address: string | undefined): Promise<any> {
+        this.contract.options.address = contractAddress;
+        let addr = address;
+        if (address === undefined) {
+            addr = '0x0000000000000000000000000000000000000000';
+        }
+        
+        return await this.contract.methods.getLimitsFor(addr).call();
     }
 }
