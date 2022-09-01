@@ -4,7 +4,7 @@ import { Params, default as initWasm } from 'libzkbob-rs-wasm-web';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-export { ZkBobClient, TxAmount, FeeAmount } from './client';
+export { ZkBobClient, TxAmount, FeeAmount, PoolLimits } from './client';
 
 export { TxType } from './tx';
 

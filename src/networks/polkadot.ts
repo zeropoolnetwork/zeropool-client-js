@@ -9,6 +9,10 @@ export class PolkadotNetwork implements NetworkBackend {
         return BigInt(0); // FIXME
     }
 
+    async poolLimits(contractAddress: string, address: string | undefined): Promise<any> {
+        return undefined; // FIXME
+    }
+
     isSignatureCompact(): boolean {
         return false;
     }
