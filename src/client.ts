@@ -9,8 +9,8 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(10000000);
-const DEFAULT_TX_FEE = BigInt(10000000);
+const MIN_TX_AMOUNT = BigInt(100000000);
+const DEFAULT_TX_FEE = BigInt(100000000);
 const BATCH_SIZE = 100;
 
 export interface RelayerInfo {
@@ -820,6 +820,10 @@ export class ZkBobClient {
     }
 
     return this.relayerFee;
+  }
+
+  public async minTxAmount(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<bigint> {
+    return MIN_TX_AMOUNT;
   }
 
   // Account + notes balance excluding fee needed to transfer or withdraw it
