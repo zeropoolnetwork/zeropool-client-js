@@ -81,17 +81,6 @@ export interface PoolLimits { // all values are in Gwei
   }
 }
 
-export interface DepositLimitsFetch {
-  singleOperation: bigint;
-  daylyForAddress: bigint;
-  daylyForAll: Limit;
-  poolLimit: Limit;
-}
-
-export interface WithdrawLimitsFetch {
-  daylyForAll: Limit;
-}
-
 export interface LimitsFetch { 
   deposit: {
     singleOperation: bigint;
@@ -1378,31 +1367,30 @@ export class ZkBobClient {
     }
     const headers = {'content-type': 'application/json;charset=UTF-8'};
     const res = await (await fetch(url.toString(), {headers})).json();
-    return res;
-  }
-  
-  private async depositLimits(relayerUrl: string): Promise<DepositLimitsFetch> {
-    try {
-      const url = new URL('/limits/deposit', relayerUrl);
-      const headers = {'content-type': 'application/json;charset=UTF-8'};
-      const res = await (await fetch(url.toString(), {headers})).json();
-      return res;
-    } catch (e) {
-      console.error(`Cannot fetch deposit limits from the relayer (${e}). The hardcoded values will be used. The transactions may be reverted`);
-      // hardcoded values
-      return {
-        singleOperation: BigInt(10000000000000),  // 10k tokens
-        daylyForAddress: BigInt(10000000000000),  // 10k tokens
+
+    return {
+      deposit: {
+        singleOperation: BigInt(res.deposit.singleOperation),
+        daylyForAddress: {
+          total:     BigInt(res.deposit.daylyForAddress.total),
+          available: BigInt(res.deposit.daylyForAddress.available),
+        },
         daylyForAll: {
-          total:      BigInt(100000000000000),  // 100k tokens
-          available:  BigInt(100000000000000),  // 100k tokens
+          total:      BigInt(res.deposit.daylyForAll.total),
+          available:  BigInt(res.deposit.daylyForAll.available),
         },
         poolLimit: {
-          total:      BigInt(1000000000000000), // 1kk tokens
-          available:  BigInt(1000000000000000), // 1kk tokens
+          total:      BigInt(res.deposit.poolLimit.total),
+          available:  BigInt(res.deposit.poolLimit.available),
         },
-      };
-    }
+      },
+      withdraw: {
+        daylyForAll: {
+          total:      BigInt(res.withdraw.daylyForAll.total),
+          available:  BigInt(res.withdraw.daylyForAll.available),
+        },
+      }
+    };
   }
 
   // DEPRECATED: use fetchTransactionsOptimistic to get actual state including optimistic state
