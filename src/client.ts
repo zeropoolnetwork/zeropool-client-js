@@ -911,65 +911,88 @@ export class ZkBobClient {
   // The deposit and withdraw amount is limited by few factors:
   // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
   // Global limits are fetched from the relayer (except personal deposit limit from the specified address)
-  public async getLimits(tokenAddress: string, address: string | undefined = undefined): Promise<PoolLimits> {
+  public async getLimits(tokenAddress: string, address: string | undefined = undefined, directRequest: boolean = false): Promise<PoolLimits> {
     const token = this.tokens[tokenAddress];
 
+    async function fetchLimitsFromContract(): Promise<LimitsFetch> {
+      const poolLimits = await this.config.network.poolLimits(token.poolAddress, address);
+      return {
+        deposit: {
+          singleOperation: BigInt(poolLimits.depositCap),
+          daylyForAddress: {
+            total: BigInt(poolLimits.dailyUserDepositCap),
+            available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
+          },
+          daylyForAll: {
+            total:      BigInt(poolLimits.dailyDepositCap),
+            available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
+          },
+          poolLimit: {
+            total:      BigInt(poolLimits.tvlCap),
+            available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
+          },
+        },
+        withdraw: {
+          daylyForAll: {
+            total:      BigInt(poolLimits.dailyWithdrawalCap),
+            available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
+          },
+        }
+      };
+    }
+
+    function defaultLimits(): LimitsFetch {
+      // hardcoded values
+      return {
+        deposit: {
+          singleOperation: BigInt(10000000000000),  // 10k tokens
+          daylyForAddress: {
+            total: BigInt(10000000000000),  // 10k tokens
+            available: BigInt(10000000000000),  // 10k tokens
+          },
+          daylyForAll: {
+            total:      BigInt(100000000000000),  // 100k tokens
+            available:  BigInt(100000000000000),  // 100k tokens
+          },
+          poolLimit: {
+            total:      BigInt(1000000000000000), // 1kk tokens
+            available:  BigInt(1000000000000000), // 1kk tokens
+          },
+        },
+        withdraw: {
+          daylyForAll: {
+            total:      BigInt(100000000000000),  // 100k tokens
+            available:  BigInt(100000000000000),  // 100k tokens
+          },
+        }
+      };
+    }
+
+    // Fetch limits in the requested order
     let currentLimits: LimitsFetch;
-    try {
-      currentLimits = await this.limits(token.relayerUrl, address)
-    } catch (e) {
-      console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
+    if (directRequest) {
       try {
-        const poolLimits = await this.config.network.poolLimits(token.poolAddress, address);
-        currentLimits = {
-          deposit: {
-            singleOperation: BigInt(poolLimits.depositCap),
-            daylyForAddress: {
-              total: BigInt(poolLimits.dailyUserDepositCap),
-              available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
-            },
-            daylyForAll: {
-              total:      BigInt(poolLimits.dailyDepositCap),
-              available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
-            },
-            poolLimit: {
-              total:      BigInt(poolLimits.tvlCap),
-              available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
-            },
-          },
-          withdraw: {
-            daylyForAll: {
-              total:      BigInt(poolLimits.dailyWithdrawalCap),
-              available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
-            },
-          }
-        };
-      } catch (err) {
-        console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
-        // hardcoded values
-        currentLimits = {
-          deposit: {
-            singleOperation: BigInt(10000000000000),  // 10k tokens
-            daylyForAddress: {
-              total: BigInt(10000000000000),  // 10k tokens
-              available: BigInt(10000000000000),  // 10k tokens
-            },
-            daylyForAll: {
-              total:      BigInt(100000000000000),  // 100k tokens
-              available:  BigInt(100000000000000),  // 100k tokens
-            },
-            poolLimit: {
-              total:      BigInt(1000000000000000), // 1kk tokens
-              available:  BigInt(1000000000000000), // 1kk tokens
-            },
-          },
-          withdraw: {
-            daylyForAll: {
-              total:      BigInt(100000000000000),  // 100k tokens
-              available:  BigInt(100000000000000),  // 100k tokens
-            },
-          }
-        };
+        currentLimits = await fetchLimitsFromContract();
+      } catch (e) {
+        console.error(`Cannot fetch limits from the contracct (${e}). Try to get them from relayer`);
+        try {
+          currentLimits = await this.limits(token.relayerUrl, address)
+        } catch (err) {
+          console.error(`Cannot fetch limits from the relayer (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
+          currentLimits = defaultLimits();
+        }
+      }
+    } else {
+      try {
+        currentLimits = await this.limits(token.relayerUrl, address)
+      } catch (e) {
+        console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
+        try {
+          currentLimits = await fetchLimitsFromContract();
+        } catch (err) {
+          console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
+          currentLimits = defaultLimits();
+        }
       }
     }
 
