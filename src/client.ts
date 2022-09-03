@@ -333,6 +333,11 @@ export class ZkBobClient {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
+    const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
+    if (amountGwei > limits.deposit.total) {
+      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
+    }
+
     await this.updateState(tokenAddress);
 
     let txData;
@@ -467,6 +472,11 @@ export class ZkBobClient {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
+    const limits = await this.getLimits(tokenAddress, address);
+    if (amountGwei > limits.withdraw.total) {
+      throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
+    }
+
     const txParts = await this.getTransactionParts(tokenAddress, amountGwei, feeGwei);
 
     if (txParts.length == 0) {
@@ -539,71 +549,6 @@ export class ZkBobClient {
   }
 
   // DEPRECATED. Please use depositPermittableV2 method instead
-  // This method doesn't cover nullifier by signature, so user funds can be stealed
-  // Deposit based on permittable token scheme. User should sign typed data to allow
-  // contract receive his tokens
-  // Returns jobId from the relayer or throw an Error
-  public async depositPermittable(
-    tokenAddress: string,
-    amountGwei: bigint,
-    signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
-    fromAddress: string | null = null,
-    feeGwei: bigint = BigInt(0),
-  ): Promise<string> {
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-
-    if (amountGwei < MIN_TX_AMOUNT) {
-      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    await this.updateState(tokenAddress);
-
-    let txData;
-    if (fromAddress) {
-      const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
-      const holder = ethAddrToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({ 
-        amount: (amountGwei + feeGwei).toString(),
-        fee: feeGwei.toString(),
-        deadline: String(deadline),
-        holder
-      });
-
-      const startProofDate = Date.now();
-      const txProof = await this.worker.proveTx(txData.public, txData.secret);
-      const proofTime = (Date.now() - startProofDate) / 1000;
-      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-      if (!txValid) {
-        throw new Error('invalid tx proof');
-      }
-
-      // permittable deposit signature should be calculated for the typed data
-      const value = (amountGwei + feeGwei) * state.denominator;
-      let signature = truncateHexPrefix(await signTypedData(deadline, value));
-
-      if (this.config.network.isSignatureCompact()) {
-        signature = toCompactSignature(signature);
-      }
-
-      let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
-      const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
-
-      // Temporary save transaction in the history module (to prevent history delays)
-      const ts = Math.floor(Date.now() / 1000);
-      let rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, "0", true);
-      state.history.keepQueuedTransactions([rec], jobId);
-
-      return jobId;
-
-    } else {
-      throw new Error('You must provide fromAddress for bridge deposit transaction ');
-    }
-  }
-
-  // DEPRECATED. Please use depositPermittableV2 method instead
   // Deposit throught approval allowance
   // User should approve allowance for contract address at least 
   // (amountGwei + feeGwei) tokens before calling this method
@@ -620,6 +565,11 @@ export class ZkBobClient {
 
     if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
+    if (amountGwei > limits.deposit.total) {
+      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
     }
 
     await this.updateState(tokenAddress);
@@ -727,6 +677,11 @@ export class ZkBobClient {
 
     if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    const limits = await this.getLimits(tokenAddress, address);
+    if (amountGwei > limits.withdraw.total) {
+      throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
     }
 
     await this.updateState(tokenAddress);
@@ -914,8 +869,8 @@ export class ZkBobClient {
   public async getLimits(tokenAddress: string, address: string | undefined = undefined, directRequest: boolean = false): Promise<PoolLimits> {
     const token = this.tokens[tokenAddress];
 
-    async function fetchLimitsFromContract(): Promise<LimitsFetch> {
-      const poolLimits = await this.config.network.poolLimits(token.poolAddress, address);
+    async function fetchLimitsFromContract(network: NetworkBackend): Promise<LimitsFetch> {
+      const poolLimits = await network.poolLimits(token.poolAddress, address);
       return {
         deposit: {
           singleOperation: BigInt(poolLimits.depositCap),
@@ -972,7 +927,7 @@ export class ZkBobClient {
     let currentLimits: LimitsFetch;
     if (directRequest) {
       try {
-        currentLimits = await fetchLimitsFromContract();
+        currentLimits = await fetchLimitsFromContract(this.config.network);
       } catch (e) {
         console.error(`Cannot fetch limits from the contracct (${e}). Try to get them from relayer`);
         try {
@@ -988,7 +943,7 @@ export class ZkBobClient {
       } catch (e) {
         console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
         try {
-          currentLimits = await fetchLimitsFromContract();
+          currentLimits = await fetchLimitsFromContract(this.config.network);
         } catch (err) {
           console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
           currentLimits = defaultLimits();
