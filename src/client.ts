@@ -9,8 +9,8 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(10000000);
-const DEFAULT_TX_FEE = BigInt(10000000);
+const MIN_TX_AMOUNT = BigInt(100000000);
+const DEFAULT_TX_FEE = BigInt(100000000);
 const BATCH_SIZE = 100;
 
 export interface RelayerInfo {
@@ -79,17 +79,6 @@ export interface PoolLimits { // all values are in Gwei
       daylyForAll: Limit;
     };
   }
-}
-
-export interface DepositLimitsFetch {
-  singleOperation: bigint;
-  daylyForAddress: bigint;
-  daylyForAll: Limit;
-  poolLimit: Limit;
-}
-
-export interface WithdrawLimitsFetch {
-  daylyForAll: Limit;
 }
 
 export interface LimitsFetch { 
@@ -344,6 +333,11 @@ export class ZkBobClient {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
+    const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
+    if (amountGwei > limits.deposit.total) {
+      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
+    }
+
     await this.updateState(tokenAddress);
 
     let txData;
@@ -478,6 +472,11 @@ export class ZkBobClient {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
+    const limits = await this.getLimits(tokenAddress, address);
+    if (amountGwei > limits.withdraw.total) {
+      throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
+    }
+
     const txParts = await this.getTransactionParts(tokenAddress, amountGwei, feeGwei);
 
     if (txParts.length == 0) {
@@ -550,71 +549,6 @@ export class ZkBobClient {
   }
 
   // DEPRECATED. Please use depositPermittableV2 method instead
-  // This method doesn't cover nullifier by signature, so user funds can be stealed
-  // Deposit based on permittable token scheme. User should sign typed data to allow
-  // contract receive his tokens
-  // Returns jobId from the relayer or throw an Error
-  public async depositPermittable(
-    tokenAddress: string,
-    amountGwei: bigint,
-    signTypedData: (deadline: bigint, value: bigint) => Promise<string>,
-    fromAddress: string | null = null,
-    feeGwei: bigint = BigInt(0),
-  ): Promise<string> {
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-
-    if (amountGwei < MIN_TX_AMOUNT) {
-      throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    await this.updateState(tokenAddress);
-
-    let txData;
-    if (fromAddress) {
-      const deadline:bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
-      const holder = ethAddrToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({ 
-        amount: (amountGwei + feeGwei).toString(),
-        fee: feeGwei.toString(),
-        deadline: String(deadline),
-        holder
-      });
-
-      const startProofDate = Date.now();
-      const txProof = await this.worker.proveTx(txData.public, txData.secret);
-      const proofTime = (Date.now() - startProofDate) / 1000;
-      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-      const txValid = Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-      if (!txValid) {
-        throw new Error('invalid tx proof');
-      }
-
-      // permittable deposit signature should be calculated for the typed data
-      const value = (amountGwei + feeGwei) * state.denominator;
-      let signature = truncateHexPrefix(await signTypedData(deadline, value));
-
-      if (this.config.network.isSignatureCompact()) {
-        signature = toCompactSignature(signature);
-      }
-
-      let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
-      const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
-
-      // Temporary save transaction in the history module (to prevent history delays)
-      const ts = Math.floor(Date.now() / 1000);
-      let rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, "0", true);
-      state.history.keepQueuedTransactions([rec], jobId);
-
-      return jobId;
-
-    } else {
-      throw new Error('You must provide fromAddress for bridge deposit transaction ');
-    }
-  }
-
-  // DEPRECATED. Please use depositPermittableV2 method instead
   // Deposit throught approval allowance
   // User should approve allowance for contract address at least 
   // (amountGwei + feeGwei) tokens before calling this method
@@ -631,6 +565,11 @@ export class ZkBobClient {
 
     if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+    }
+
+    const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
+    if (amountGwei > limits.deposit.total) {
+      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
     }
 
     await this.updateState(tokenAddress);
@@ -740,6 +679,11 @@ export class ZkBobClient {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
+    const limits = await this.getLimits(tokenAddress, address);
+    if (amountGwei > limits.withdraw.total) {
+      throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
+    }
+
     await this.updateState(tokenAddress);
 
     const txType = TxType.Withdraw;
@@ -820,6 +764,10 @@ export class ZkBobClient {
     }
 
     return this.relayerFee;
+  }
+
+  public async minTxAmount(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<bigint> {
+    return MIN_TX_AMOUNT;
   }
 
   // Account + notes balance excluding fee needed to transfer or withdraw it
@@ -918,65 +866,88 @@ export class ZkBobClient {
   // The deposit and withdraw amount is limited by few factors:
   // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
   // Global limits are fetched from the relayer (except personal deposit limit from the specified address)
-  public async getLimits(tokenAddress: string, address: string | undefined = undefined): Promise<PoolLimits> {
+  public async getLimits(tokenAddress: string, address: string | undefined = undefined, directRequest: boolean = false): Promise<PoolLimits> {
     const token = this.tokens[tokenAddress];
 
+    async function fetchLimitsFromContract(network: NetworkBackend): Promise<LimitsFetch> {
+      const poolLimits = await network.poolLimits(token.poolAddress, address);
+      return {
+        deposit: {
+          singleOperation: BigInt(poolLimits.depositCap),
+          daylyForAddress: {
+            total: BigInt(poolLimits.dailyUserDepositCap),
+            available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
+          },
+          daylyForAll: {
+            total:      BigInt(poolLimits.dailyDepositCap),
+            available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
+          },
+          poolLimit: {
+            total:      BigInt(poolLimits.tvlCap),
+            available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
+          },
+        },
+        withdraw: {
+          daylyForAll: {
+            total:      BigInt(poolLimits.dailyWithdrawalCap),
+            available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
+          },
+        }
+      };
+    }
+
+    function defaultLimits(): LimitsFetch {
+      // hardcoded values
+      return {
+        deposit: {
+          singleOperation: BigInt(10000000000000),  // 10k tokens
+          daylyForAddress: {
+            total: BigInt(10000000000000),  // 10k tokens
+            available: BigInt(10000000000000),  // 10k tokens
+          },
+          daylyForAll: {
+            total:      BigInt(100000000000000),  // 100k tokens
+            available:  BigInt(100000000000000),  // 100k tokens
+          },
+          poolLimit: {
+            total:      BigInt(1000000000000000), // 1kk tokens
+            available:  BigInt(1000000000000000), // 1kk tokens
+          },
+        },
+        withdraw: {
+          daylyForAll: {
+            total:      BigInt(100000000000000),  // 100k tokens
+            available:  BigInt(100000000000000),  // 100k tokens
+          },
+        }
+      };
+    }
+
+    // Fetch limits in the requested order
     let currentLimits: LimitsFetch;
-    try {
-      currentLimits = await this.limits(token.relayerUrl, address)
-    } catch (e) {
-      console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
+    if (directRequest) {
       try {
-        const poolLimits = await this.config.network.poolLimits(token.poolAddress, address);
-        currentLimits = {
-          deposit: {
-            singleOperation: BigInt(poolLimits.depositCap),
-            daylyForAddress: {
-              total: BigInt(poolLimits.dailyUserDepositCap),
-              available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
-            },
-            daylyForAll: {
-              total:      BigInt(poolLimits.dailyDepositCap),
-              available:  BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
-            },
-            poolLimit: {
-              total:      BigInt(poolLimits.tvlCap),
-              available:  BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
-            },
-          },
-          withdraw: {
-            daylyForAll: {
-              total:      BigInt(poolLimits.dailyWithdrawalCap),
-              available:  BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
-            },
-          }
-        };
-      } catch (err) {
-        console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
-        // hardcoded values
-        currentLimits = {
-          deposit: {
-            singleOperation: BigInt(10000000000000),  // 10k tokens
-            daylyForAddress: {
-              total: BigInt(10000000000000),  // 10k tokens
-              available: BigInt(10000000000000),  // 10k tokens
-            },
-            daylyForAll: {
-              total:      BigInt(100000000000000),  // 100k tokens
-              available:  BigInt(100000000000000),  // 100k tokens
-            },
-            poolLimit: {
-              total:      BigInt(1000000000000000), // 1kk tokens
-              available:  BigInt(1000000000000000), // 1kk tokens
-            },
-          },
-          withdraw: {
-            daylyForAll: {
-              total:      BigInt(100000000000000),  // 100k tokens
-              available:  BigInt(100000000000000),  // 100k tokens
-            },
-          }
-        };
+        currentLimits = await fetchLimitsFromContract(this.config.network);
+      } catch (e) {
+        console.error(`Cannot fetch limits from the contracct (${e}). Try to get them from relayer`);
+        try {
+          currentLimits = await this.limits(token.relayerUrl, address)
+        } catch (err) {
+          console.error(`Cannot fetch limits from the relayer (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
+          currentLimits = defaultLimits();
+        }
+      }
+    } else {
+      try {
+        currentLimits = await this.limits(token.relayerUrl, address)
+      } catch (e) {
+        console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
+        try {
+          currentLimits = await fetchLimitsFromContract(this.config.network);
+        } catch (err) {
+          console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
+          currentLimits = defaultLimits();
+        }
       }
     }
 
@@ -1374,31 +1345,30 @@ export class ZkBobClient {
     }
     const headers = {'content-type': 'application/json;charset=UTF-8'};
     const res = await (await fetch(url.toString(), {headers})).json();
-    return res;
-  }
-  
-  private async depositLimits(relayerUrl: string): Promise<DepositLimitsFetch> {
-    try {
-      const url = new URL('/limits/deposit', relayerUrl);
-      const headers = {'content-type': 'application/json;charset=UTF-8'};
-      const res = await (await fetch(url.toString(), {headers})).json();
-      return res;
-    } catch (e) {
-      console.error(`Cannot fetch deposit limits from the relayer (${e}). The hardcoded values will be used. The transactions may be reverted`);
-      // hardcoded values
-      return {
-        singleOperation: BigInt(10000000000000),  // 10k tokens
-        daylyForAddress: BigInt(10000000000000),  // 10k tokens
+
+    return {
+      deposit: {
+        singleOperation: BigInt(res.deposit.singleOperation),
+        daylyForAddress: {
+          total:     BigInt(res.deposit.daylyForAddress.total),
+          available: BigInt(res.deposit.daylyForAddress.available),
+        },
         daylyForAll: {
-          total:      BigInt(100000000000000),  // 100k tokens
-          available:  BigInt(100000000000000),  // 100k tokens
+          total:      BigInt(res.deposit.daylyForAll.total),
+          available:  BigInt(res.deposit.daylyForAll.available),
         },
         poolLimit: {
-          total:      BigInt(1000000000000000), // 1kk tokens
-          available:  BigInt(1000000000000000), // 1kk tokens
+          total:      BigInt(res.deposit.poolLimit.total),
+          available:  BigInt(res.deposit.poolLimit.available),
         },
-      };
-    }
+      },
+      withdraw: {
+        daylyForAll: {
+          total:      BigInt(res.withdraw.daylyForAll.total),
+          available:  BigInt(res.withdraw.daylyForAll.available),
+        },
+      }
+    };
   }
 
   // DEPRECATED: use fetchTransactionsOptimistic to get actual state including optimistic state
