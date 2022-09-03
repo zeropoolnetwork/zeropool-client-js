@@ -766,7 +766,7 @@ export class ZkBobClient {
     return this.relayerFee;
   }
 
-  public async minTxAmount(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<bigint> {
+  public async minTxAmount(tokenAddress: string): Promise<bigint> {
     return MIN_TX_AMOUNT;
   }
 
