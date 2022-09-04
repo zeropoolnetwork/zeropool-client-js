@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "comlink": "^4.3.1",
+    "ethereum-block-by-date": "^1.4.5",
     "hdwallet-babyjub": "^0.0.1",
     "idb": "^7.0.0",
     "libzkbob-rs-wasm-web": "0.6.1",
