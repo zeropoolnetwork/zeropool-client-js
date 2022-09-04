@@ -1,6 +1,6 @@
 {
   "name": "zkbob-client-js",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "zkBob integration library",
   "repository": "git@github.com:zkBob/libzkbob-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -23,14 +23,16 @@
     "libzkbob-rs-wasm-web": "0.6.1",
     "regenerator-runtime": "^0.13.9",
     "web3": "^1.7.0",
-    "web3-eth-personal": "^1.7.0",
-    "web3-utils": "^1.7.0",
-    "ethereum-block-by-date": "^1.4.5"
+    "ethereumjs-util": "^7.1.5",
+    "web3-utils": "^1.7.0"
   },
   "devDependencies": {
     "ts-loader": "^9.2.6",
     "typescript": "^4.1.2",
     "webpack": "^5.64.2",
     "webpack-cli": "^4.9.1"
+  },
+  "resolutions": {
+    "@types/responselike": "1.0.0"
   }
 }
