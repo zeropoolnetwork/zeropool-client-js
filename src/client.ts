@@ -1,7 +1,7 @@
 import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate } from 'libzkbob-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { ethAddrToBuf, toCompactSignature, truncateHexPrefix, toTwosComplementHex } from './utils';
+import { ethAddrToBuf, toCompactSignature, truncateHexPrefix, toTwosComplementHex, addressFromSignature } from './utils';
 import { ZkBobState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -9,7 +9,7 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(100000000);
+const MIN_TX_AMOUNT = BigInt(10000000);
 const DEFAULT_TX_FEE = BigInt(100000000);
 const BATCH_SIZE = 100;
 
@@ -557,7 +557,8 @@ export class ZkBobClient {
     tokenAddress: string,
     amountGwei: bigint,
     sign: (data: string) => Promise<string>,
-    fromAddress: string | null = null,
+    fromAddress: string | null = null,  // this field is only for substrate-based network,
+                                        // it should be null for EVM
     feeGwei: bigint = BigInt(0),
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
@@ -565,11 +566,6 @@ export class ZkBobClient {
 
     if (amountGwei < MIN_TX_AMOUNT) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
-    if (amountGwei > limits.deposit.total) {
-      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
     }
 
     await this.updateState(tokenAddress);
@@ -594,6 +590,14 @@ export class ZkBobClient {
 
     // TODO: Sign fromAddress as well?
     const signature = truncateHexPrefix(await sign(dataToSign));
+    
+    // now we can restore actual depositer address and check it for limits
+    const addrFromSig = addressFromSignature(signature, dataToSign);
+    const limits = await this.getLimits(tokenAddress, addrFromSig);
+    if (amountGwei > limits.deposit.total) {
+      throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
+    }
+
     let fullSignature = signature;
     if (fromAddress) {
       const addr = truncateHexPrefix(fromAddress);

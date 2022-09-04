@@ -4,6 +4,8 @@ import { validateAddress } from 'libzkbob-rs-wasm-web';
 
 import { NetworkType } from './network-type';
 
+const util = require('ethereumjs-util');
+
 export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): Uint8Array {
   const path = NetworkType.privateDerivationPath(networkType);
   const sk = bigintToArrayLe(Privkey(mnemonic, path).k);
@@ -274,4 +276,19 @@ export function toCanonicalSignature(signature: string): string {
     sig = sig.substr(0, 64) + `${(parseInt(sig[64], 16) & 7).toString(16)}` + sig.slice(65);
   }
   return `0x` + sig + v;
+}
+
+export function addressFromSignature(signature: string, signedData: string): string {
+  let sigFields = util.fromRpcSig(addHexPrefix(signature));
+
+  const dataBuf = hexToBuf(signedData);
+  const prefix = Buffer.from("\x19Ethereum Signed Message:\n");
+  const prefixedSignedData = util.keccak(
+    Buffer.concat([prefix, Buffer.from(String(dataBuf.length)), dataBuf])
+  );
+
+  let pub = util.ecrecover(prefixedSignedData, sigFields.v, sigFields.r, sigFields.s);
+  let addrBuf = util.pubToAddress(pub);
+
+  return addHexPrefix(bufToHex(addrBuf));
 }
