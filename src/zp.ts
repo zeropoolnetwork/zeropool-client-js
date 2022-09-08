@@ -40,9 +40,9 @@ export async function init(snarkParams: SnarkConfigParams): Promise<ZeroPoolLibS
 
     let worker: any;
     if (isMt) {
-        worker = wrap(new Worker(new URL('./workerMt.ts', import.meta.url), { type: 'module' }));
+        worker = wrap(new Worker(new URL('./workerMt.js', import.meta.url), { type: 'module' }));
     } else {
-        worker = wrap(new Worker(new URL('./workerSt.ts', import.meta.url), { type: 'module' }));
+        worker = wrap(new Worker(new URL('./workerSt.js', import.meta.url), { type: 'module' }));
     }
 
     await worker.initWasm({

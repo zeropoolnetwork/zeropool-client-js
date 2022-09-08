@@ -26,16 +26,16 @@ export class ZeroPoolState {
     return zpState;
   }
 
-  // in Gwei
+  // in wei
   public getTotalBalance(): bigint {
-    return BigInt(this.account.totalBalance());
+    return BigInt(this.account.totalBalance()) * this.denominator;
   }
 
-  // in Gwei
+  // in wei
   public getBalances(): [bigint, bigint, bigint] {
-    const total = BigInt(this.account.totalBalance());
-    const acc = BigInt(this.account.accountBalance());
-    const note = BigInt(this.account.noteBalance());
+    const total = BigInt(this.account.totalBalance()) * this.denominator;
+    const acc = BigInt(this.account.accountBalance()) * this.denominator;
+    const note = BigInt(this.account.noteBalance()) * this.denominator;
 
     return [total, acc, note];
   }
