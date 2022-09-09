@@ -571,6 +571,8 @@ export class ZeropoolClient {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
+    const amountGwei = amountWei / denominator;
+    const feeGwei = feeWei / denominator;
 
     if (amountWei < MIN_TX_AMOUNT) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
@@ -593,8 +595,8 @@ export class ZeropoolClient {
     });
 
     let txData = state.account.createDeposit({
-      amount: ((amountWei + feeWei) / denominator).toString(),
-      fee: (feeWei / denominator).toString(),
+      amount: (amountGwei + feeGwei).toString(),
+      fee: feeGwei.toString(),
       outputs: outsGwei,
     });
 
@@ -635,8 +637,12 @@ export class ZeropoolClient {
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
+    let totalTokenAmount = amountGwei;
+    for (let o of outsGwei) {
+      totalTokenAmount -= BigInt(o.amount);
+    }
     const ts = Math.floor(Date.now() / 1000);
-    let rec = HistoryRecord.deposit(fromAddress, amountWei / denominator, feeWei / denominator, ts, "0", true);
+    let rec = HistoryRecord.deposit(fromAddress, totalTokenAmount, feeGwei, ts, "0", true);
     state.history.keepQueuedTransactions([rec], jobId);
 
     return jobId;

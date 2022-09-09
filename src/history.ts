@@ -395,6 +395,8 @@ export class HistoryStorage {
                   let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
                   allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
+                  const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
+                  allRecords = allRecords.concat(outs);
                 } else {
                   //incorrect signature
                   throw new Error(`no signature for approvable deposit`);
@@ -408,32 +410,12 @@ export class HistoryStorage {
                 let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
                 allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
+                const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
+                allRecords = allRecords.concat(outs);
+
               } else if (tx.txType == TxType.Transfer) {
-                // there are 2 cases: 
-                if (memo.acc) {
-                  // 1. we initiated it => outcoming tx(s)
-                  for (let { note, index } of memo.outNotes) {
-                    const destAddr = zp.assembleAddress(note.d, note.p_d);
-
-                    let rec: HistoryRecord;
-                    if (memo.inNotes.find((obj) => { return obj.index === index })) {
-                      // a special case: loopback transfer
-                      rec = HistoryRecord.transferLoopback(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
-                    } else {
-                      // regular transfer to another person
-                      rec = HistoryRecord.transferOut(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
-                    }
-
-                    allRecords.push(HistoryRecordIdx.create(rec, index));
-                  }
-                } else {
-                  // 2. somebody initiated it => incoming tx(s)
-                  for (let { note, index } of memo.inNotes) {
-                    const destAddr = zp.assembleAddress(note.d, note.p_d);
-                    let rec = HistoryRecord.transferIn(destAddr, BigInt(note.b), BigInt(0), ts, txHash, pending);
-                    allRecords.push(HistoryRecordIdx.create(rec, index));
-                  }
-                }
+                const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
+                allRecords = allRecords.concat(outs);
               } else if (tx.txType == TxType.Withdraw) {
                 // withdrawal transaction (destination address in the memoblock)
                 const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
@@ -475,4 +457,36 @@ export class HistoryStorage {
     throw new Error(`Cannot find txHash for memo at index ${memo.index}`);
   }
 
+  private processOuts(memo: DecryptedMemo, feeAmount: bigint, ts: number, txHash: string, pending: boolean): HistoryRecordIdx[] {
+    let allRecords: HistoryRecordIdx[] = [];
+
+    if (memo.acc) {
+      // 1. we initiated it => outcoming tx(s)
+      for (let {note, index} of memo.outNotes) {
+        const destAddr = zp.assembleAddress(note.d, note.p_d);
+
+        let rec: HistoryRecord;
+        if (memo.inNotes.find((obj) => {
+          return obj.index === index
+        })) {
+          // a special case: loopback transfer
+          rec = HistoryRecord.transferLoopback(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
+        } else {
+          // regular transfer to another person
+          rec = HistoryRecord.transferOut(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
+        }
+
+        allRecords.push(HistoryRecordIdx.create(rec, index));
+      }
+    } else {
+      // 2. somebody initiated it => incoming tx(s)
+      for (let { note, index } of memo.inNotes) {
+        const destAddr = zp.assembleAddress(note.d, note.p_d);
+        let rec = HistoryRecord.transferIn(destAddr, BigInt(note.b), BigInt(0), ts, txHash, pending);
+        allRecords.push(HistoryRecordIdx.create(rec, index));
+      }
+    }
+
+    return allRecords;
+  }
 }
