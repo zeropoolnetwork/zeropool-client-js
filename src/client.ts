@@ -566,7 +566,7 @@ export class ZeropoolClient {
     fromAddress: string,
     // it should be null for EVM
     feeWei: bigint = BigInt(0),
-    outputs: Output[] = [],
+    outsWei: Output[] = [],
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -578,10 +578,24 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
+    const outsGwei = outsWei.map(({ to, amount }) => {
+      if (!zp.validateAddress(to)) {
+        throw new Error('Invalid address. Expected a shielded address.');
+      }
+
+      const amountBn = BigInt(amount);
+
+      if (amountBn < MIN_TX_AMOUNT) {
+        throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
+      }
+
+      return { to, amount: (amountBn / denominator).toString() };
+    });
+
     let txData = state.account.createDeposit({
       amount: ((amountWei + feeWei) / denominator).toString(),
       fee: (feeWei / denominator).toString(),
-      outputs,
+      outputs: outsGwei,
     });
 
     const startProofDate = Date.now();
