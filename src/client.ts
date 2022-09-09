@@ -563,7 +563,7 @@ export class ZeropoolClient {
     tokenAddress: string,
     amountWei: bigint,
     sign: (data: string) => Promise<string>,
-    fromAddress: string | null = null,  // this field is only for substrate-based network,
+    fromAddress: string,
     // it should be null for EVM
     feeWei: bigint = BigInt(0),
     outputs: Output[] = [],
@@ -607,10 +607,11 @@ export class ZeropoolClient {
     // }
 
     let fullSignature = signature;
-    if (fromAddress) {
-      const addr = truncateHexPrefix(fromAddress);
-      fullSignature = addr + signature;
-    }
+    // FIXME: restore substrate support
+    // if (fromAddress) {
+    //   const addr = truncateHexPrefix(fromAddress);
+    //   fullSignature = addr + signature;
+    // }
 
     if (this.config.network.isSignatureCompact()) {
       fullSignature = toCompactSignature(fullSignature);
@@ -619,12 +620,10 @@ export class ZeropoolClient {
     let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
-    if (fromAddress) {
-      // Temporary save transaction in the history module (to prevent history delays)
-      const ts = Math.floor(Date.now() / 1000);
-      let rec = HistoryRecord.deposit(fromAddress, amountWei / denominator, feeWei / denominator, ts, "0", true);
-      state.history.keepQueuedTransactions([rec], jobId);
-    }
+    // Temporary save transaction in the history module (to prevent history delays)
+    const ts = Math.floor(Date.now() / 1000);
+    let rec = HistoryRecord.deposit(fromAddress, amountWei / denominator, feeWei / denominator, ts, "0", true);
+    state.history.keepQueuedTransactions([rec], jobId);
 
     return jobId;
   }
