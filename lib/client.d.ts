@@ -112,7 +112,7 @@ export declare class ZeropoolClient {
     depositPermittableV2(tokenAddress: string, amountWei: bigint, signTypedData: (deadline: bigint, value: bigint, salt: string) => Promise<string>, fromAddress?: string | null, feeWei?: bigint, outputs?: Output[]): Promise<string>;
     transferMulti(tokenAddress: string, to: string, amountWei: bigint, feeWei?: bigint): Promise<string[]>;
     withdrawMulti(tokenAddress: string, address: string, amountWei: bigint, feeWei?: bigint): Promise<string[]>;
-    deposit(tokenAddress: string, amountWei: bigint, sign: (data: string) => Promise<string>, fromAddress: string, feeWei?: bigint, outputs?: Output[]): Promise<string>;
+    deposit(tokenAddress: string, amountWei: bigint, sign: (data: string) => Promise<string>, fromAddress: string, feeWei?: bigint, outsWei?: Output[]): Promise<string>;
     transferSingle(tokenAddress: string, outsWei: Output[], feeWei?: bigint): Promise<string>;
     transfer: (tokenAddress: string, outsWei: Output[], feeWei?: bigint) => Promise<string>;
     withdrawSingle(tokenAddress: string, address: string, amountWei: bigint, feeWei?: bigint): Promise<string>;
