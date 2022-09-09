@@ -72,4 +72,5 @@ export declare class HistoryStorage {
     private put;
     private get;
     private convertToHistory;
+    private processOuts;
 }
