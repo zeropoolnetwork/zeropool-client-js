@@ -56,6 +56,7 @@ export interface FeeAmount { // all values are in Gwei
   txCnt: number;      // multitransfer case (== 1 for regular tx)
   relayer: bigint;  // relayer fee component
   l1: bigint;       // L1 fee component
+  insufficientFunds: boolean; // true when the local balance is insufficient for requested tx amount
 }
 
 export interface Limit { // all values are in Gwei
@@ -740,23 +741,38 @@ export class ZkBobClient {
   // Fee can depends on tx amount for multitransfer transactions,
   // that's why you should specify it here for general case
   // This method also supposed that in some cases fee can depends on tx amount in future
-  // Currently deposit isn't depends of amount
+  // Currently any deposit isn't depends of amount (txCnt is always 1)
+  // There are two extra states in case of insufficient funds for requested token amount:
+  //  1. txCnt contains number of transactions for maximum available transfer
+  //  2. txCnt can't be less than 1 (e.g. when balance is less than atomic fee)
   public async feeEstimate(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<FeeAmount> {
     const relayer = await this.getRelayerFee(tokenAddress);
     const l1 = BigInt(0);
     let txCnt = 1;
     let totalPerTx = relayer + l1;
     let total = totalPerTx;
+    let insufficientFunds = false;
+
     if (txType === TxType.Transfer || txType === TxType.Withdraw) {
-      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx, updateState);
-      if (parts.length == 0) {
-        throw new Error(`insufficient funds`);
+      // we set allowPartial flag here to get parts anywhere
+      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx, updateState, true);
+      const totalBalance = await this.getTotalBalance(tokenAddress, false);
+
+      let partsSumm = BigInt(0);
+      for(let i = 0; i < parts.length; i++) {
+        partsSumm += parts[i].amount;
       }
 
-      txCnt = parts.length;
+      txCnt = parts.length > 0 ? parts.length : 1;  // if we haven't funds for atomic fee - suppose we can make one tx
       total = totalPerTx * BigInt(txCnt);
+
+      insufficientFunds = (partsSumm < amountGwei || partsSumm + total > totalBalance) ? true : false;
+    } else {
+      // Deposit and BridgeDeposit cases are independent on the user balance
+      // Fee getted from the native coins, so any deposit can be make within single tx
     }
-    return {total, totalPerTx, txCnt, relayer, l1};
+
+    return {total, totalPerTx, txCnt, relayer, l1, insufficientFunds};
   }
 
   // Relayer fee component. Do not use it directly
@@ -808,7 +824,9 @@ export class ZkBobClient {
 
   // Calculate multitransfer configuration for specified token amount and fee per transaction
   // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
-  public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true): Promise<Array<TxAmount>> {
+  // Use allowPartial flag to return tx parts in case of insufficient funds for requested tx amount
+  // (otherwise the void array will be returned in case of insufficient funds)
+  public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true, allowPartial: boolean = false): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
       await this.updateState(tokenAddress);
@@ -849,7 +867,7 @@ export class ZkBobClient {
           oneTxPart = remainAmount + feeGwei;
         }
 
-        if(oneTxPart < feeGwei || oneTxPart < MIN_TX_AMOUNT) {
+        if(oneTxPart < feeGwei || (oneTxPart - feeGwei) < MIN_TX_AMOUNT) {
           break;
         }
 
@@ -859,7 +877,7 @@ export class ZkBobClient {
         oneTxPart = BigInt(0);
       }
 
-      if(remainAmount > 0){
+      if (remainAmount > 0 && allowPartial == false) {
         result = [];
       }
     }
