@@ -367,11 +367,6 @@ export class ZeropoolClient {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
-    // const limits = await this.getLimits(tokenAddress, (fromAddress !== null) ? fromAddress : undefined);
-    // if (amountGwei > limits.deposit.total) {
-    //   throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
-    // }
-
     await this.updateState(tokenAddress);
 
     let txData;
@@ -509,11 +504,6 @@ export class ZeropoolClient {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
-    // const limits = await this.getLimits(tokenAddress, address);
-    // if (amountGwei > limits.withdraw.total) {
-    //   throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
-    // }
-
     const txParts = await this.getTransactionParts(tokenAddress, amountWei, feeWei);
 
     if (txParts.length == 0) {
@@ -598,6 +588,7 @@ export class ZeropoolClient {
     // it should be null for EVM
     feeWei: bigint = BigInt(0),
     outsWei: Output[] = [],
+    includeAddressInTx: boolean = false,
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -646,19 +637,11 @@ export class ZeropoolClient {
 
     const signature = truncateHexPrefix(await sign(dataToSign));
 
-    // now we can restore actual depositer address and check it for limits
-    // const addrFromSig = addressFromSignature(signature, dataToSign);
-    // const limits = await this.getLimits(tokenAddress, addrFromSig);
-    // if (amountGwei > limits.deposit.total) {
-    //   throw new Error(`Deposit is greater than current limit (${limits.deposit.total.toString()})`);
-    // }
-
     let fullSignature = signature;
-    // FIXME: restore substrate support
-    // if (fromAddress) {
-    //   const addr = truncateHexPrefix(fromAddress);
-    //   fullSignature = addr + signature;
-    // }
+    if (includeAddressInTx) {
+      const addr = truncateHexPrefix(fromAddress);
+      fullSignature = addr + signature;
+    }
 
     if (this.config.network.isSignatureCompact()) {
       fullSignature = toCompactSignature(fullSignature);
@@ -749,11 +732,6 @@ export class ZeropoolClient {
     if (amountWei < MIN_TX_AMOUNT) {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
-
-    // const limits = await this.getLimits(tokenAddress, address);
-    // if (amountGwei > limits.withdraw.total) {
-    //   throw new Error(`Withdraw is greater than current limit (${limits.withdraw.total.toString()})`);
-    // }
 
     await this.updateState(tokenAddress);
 

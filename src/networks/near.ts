@@ -1,12 +1,8 @@
 import { NetworkBackend } from './network';
 
 export class NearNetwork implements NetworkBackend {
-  getChainId(): Promise<number> {
-    throw new Error('Method not implemented.');
-  }
-
-  poolLimits(contractAddress: string, address: string | undefined): Promise<any> {
-    throw new Error('Method not implemented.');
+  async getChainId(): Promise<number> {
+    return 0;
   }
 
   async getDenominator(contractAddress: string): Promise<bigint> {
