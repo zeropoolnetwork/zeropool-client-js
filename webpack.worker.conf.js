@@ -1,3 +1,4 @@
+// Currently not used
 const path = require('path');
 
 module.exports = {
