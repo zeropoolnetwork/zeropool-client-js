@@ -221,6 +221,37 @@ export class ZeropoolClient {
     return confirmedBalance + pendingDelta;
   }
 
+  public async getOptimisticTokenBalanceDelta(tokenAddress: string, address: string, updateState: boolean = true): Promise<bigint> {
+    const history = await this.getAllHistory(tokenAddress, updateState);
+    const pending = history.filter((h) => h.pending);
+
+    let pendingDeltaShielded = BigInt(0);
+
+    for (const h of pending) {
+      switch (h.type) {
+        case HistoryTransactionType.Deposit:
+        case HistoryTransactionType.TransferIn: {
+          pendingDeltaShielded -= h.amount;
+          break;
+        }
+        case HistoryTransactionType.Withdrawal: {
+          if (h.to.toLowerCase() === address.toLowerCase()) {
+            pendingDeltaShielded += h.amount;
+          }
+          break;
+        }
+        case HistoryTransactionType.TransferOut: {
+          pendingDeltaShielded += h.amount;
+          break;
+        }
+
+        default: break;
+      }
+    }
+
+    return pendingDeltaShielded * this.getDenominator(tokenAddress);
+  }
+
   // Get history records
   public async getAllHistory(tokenAddress: string, updateState: boolean = true): Promise<HistoryRecord[]> {
     if (updateState) {
@@ -905,122 +936,6 @@ export class ZeropoolClient {
     return result;
   }
 
-  // The deposit and withdraw amount is limited by few factors:
-  // https://docs.zkbob.com/bob-protocol/deposit-and-withdrawal-limits
-  // Global limits are fetched from the relayer (except personal deposit limit from the specified address)
-  public async getLimits(tokenAddress: string, address: string | undefined = undefined, directRequest: boolean = false): Promise<PoolLimits> {
-    const token = this.tokens[tokenAddress];
-
-    async function fetchLimitsFromContract(network: NetworkBackend): Promise<LimitsFetch> {
-      const poolLimits = await network.poolLimits(token.poolAddress, address);
-      return {
-        deposit: {
-          singleOperation: BigInt(poolLimits.depositCap),
-          daylyForAddress: {
-            total: BigInt(poolLimits.dailyUserDepositCap),
-            available: BigInt(poolLimits.dailyUserDepositCap) - BigInt(poolLimits.dailyUserDepositCapUsage),
-          },
-          daylyForAll: {
-            total: BigInt(poolLimits.dailyDepositCap),
-            available: BigInt(poolLimits.dailyDepositCap) - BigInt(poolLimits.dailyDepositCapUsage),
-          },
-          poolLimit: {
-            total: BigInt(poolLimits.tvlCap),
-            available: BigInt(poolLimits.tvlCap) - BigInt(poolLimits.tvl),
-          },
-        },
-        withdraw: {
-          daylyForAll: {
-            total: BigInt(poolLimits.dailyWithdrawalCap),
-            available: BigInt(poolLimits.dailyWithdrawalCap) - BigInt(poolLimits.dailyWithdrawalCapUsage),
-          },
-        }
-      };
-    }
-
-    function defaultLimits(): LimitsFetch {
-      // hardcoded values
-      return {
-        deposit: {
-          singleOperation: BigInt(10000000000000),  // 10k tokens
-          daylyForAddress: {
-            total: BigInt(10000000000000),  // 10k tokens
-            available: BigInt(10000000000000),  // 10k tokens
-          },
-          daylyForAll: {
-            total: BigInt(100000000000000),  // 100k tokens
-            available: BigInt(100000000000000),  // 100k tokens
-          },
-          poolLimit: {
-            total: BigInt(1000000000000000), // 1kk tokens
-            available: BigInt(1000000000000000), // 1kk tokens
-          },
-        },
-        withdraw: {
-          daylyForAll: {
-            total: BigInt(100000000000000),  // 100k tokens
-            available: BigInt(100000000000000),  // 100k tokens
-          },
-        }
-      };
-    }
-
-    // Fetch limits in the requested order
-    let currentLimits: LimitsFetch;
-    if (directRequest) {
-      try {
-        currentLimits = await fetchLimitsFromContract(this.config.network);
-      } catch (e) {
-        console.error(`Cannot fetch limits from the contracct (${e}). Try to get them from relayer`);
-        try {
-          currentLimits = await this.limits(token.relayerUrl, address)
-        } catch (err) {
-          console.error(`Cannot fetch limits from the relayer (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
-          currentLimits = defaultLimits();
-        }
-      }
-    } else {
-      try {
-        currentLimits = await this.limits(token.relayerUrl, address)
-      } catch (e) {
-        console.error(`Cannot fetch deposit limits from the relayer (${e}). Try to get them from contract directly`);
-        try {
-          currentLimits = await fetchLimitsFromContract(this.config.network);
-        } catch (err) {
-          console.error(`Cannot fetch deposit limits from contract (${err}). Getting hardcoded values. Please note your transactions can be reverted with incorrect limits!`);
-          currentLimits = defaultLimits();
-        }
-      }
-    }
-
-    // helper
-    const bigIntMin = (...args: bigint[]) => args.reduce((m, e) => e < m ? e : m);
-
-    // Calculate deposit limits
-    const allDepositLimits = [
-      currentLimits.deposit.singleOperation,
-      currentLimits.deposit.daylyForAddress.available,
-      currentLimits.deposit.daylyForAll.available,
-      currentLimits.deposit.poolLimit.available,
-    ];
-    let totalDepositLimit = bigIntMin(...allDepositLimits);
-
-    // Calculate withdraw limits
-    const allWithdrawLimits = [currentLimits.withdraw.daylyForAll.available];
-    let totalWithdrawLimit = bigIntMin(...allWithdrawLimits);
-
-    return {
-      deposit: {
-        total: totalDepositLimit >= 0 ? totalDepositLimit : BigInt(0),
-        components: currentLimits.deposit,
-      },
-      withdraw: {
-        total: totalWithdrawLimit >= 0 ? totalWithdrawLimit : BigInt(0),
-        components: currentLimits.withdraw,
-      }
-    }
-  }
-
   // ------------------=========< State Processing >=========-------------------
   // | Updating and monitoring state                                            |
   // ----------------------------------------------------------------------------
@@ -1378,39 +1293,6 @@ export class ZeropoolClient {
     } catch {
       return DEFAULT_TX_FEE;
     }
-  }
-
-  private async limits(relayerUrl: string, address: string | undefined): Promise<LimitsFetch> {
-    const url = new URL('/limits', relayerUrl);
-    if (address !== undefined) {
-      url.searchParams.set('address', address);
-    }
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    const res = await (await fetch(url.toString(), { headers })).json();
-
-    return {
-      deposit: {
-        singleOperation: BigInt(res.deposit.singleOperation),
-        daylyForAddress: {
-          total: BigInt(res.deposit.daylyForAddress.total),
-          available: BigInt(res.deposit.daylyForAddress.available),
-        },
-        daylyForAll: {
-          total: BigInt(res.deposit.daylyForAll.total),
-          available: BigInt(res.deposit.daylyForAll.available),
-        },
-        poolLimit: {
-          total: BigInt(res.deposit.poolLimit.total),
-          available: BigInt(res.deposit.poolLimit.available),
-        },
-      },
-      withdraw: {
-        daylyForAll: {
-          total: BigInt(res.withdraw.daylyForAll.total),
-          available: BigInt(res.withdraw.daylyForAll.available),
-        },
-      }
-    };
   }
 
   // DEPRECATED: use fetchTransactionsOptimistic to get actual state including optimistic state
