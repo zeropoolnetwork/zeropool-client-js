@@ -9,7 +9,7 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(10000000);
+const MIN_TX_AMOUNT = BigInt(50000000);
 const DEFAULT_TX_FEE = BigInt(100000000);
 const BATCH_SIZE = 100;
 
@@ -56,6 +56,7 @@ export interface FeeAmount { // all values are in Gwei
   txCnt: number;      // multitransfer case (== 1 for regular tx)
   relayer: bigint;  // relayer fee component
   l1: bigint;       // L1 fee component
+  insufficientFunds: boolean; // true when the local balance is insufficient for requested tx amount
 }
 
 export interface Limit { // all values are in Gwei
@@ -740,23 +741,38 @@ export class ZkBobClient {
   // Fee can depends on tx amount for multitransfer transactions,
   // that's why you should specify it here for general case
   // This method also supposed that in some cases fee can depends on tx amount in future
-  // Currently deposit isn't depends of amount
+  // Currently any deposit isn't depends of amount (txCnt is always 1)
+  // There are two extra states in case of insufficient funds for requested token amount:
+  //  1. txCnt contains number of transactions for maximum available transfer
+  //  2. txCnt can't be less than 1 (e.g. when balance is less than atomic fee)
   public async feeEstimate(tokenAddress: string, amountGwei: bigint, txType: TxType, updateState: boolean = true): Promise<FeeAmount> {
     const relayer = await this.getRelayerFee(tokenAddress);
     const l1 = BigInt(0);
     let txCnt = 1;
     let totalPerTx = relayer + l1;
     let total = totalPerTx;
+    let insufficientFunds = false;
+
     if (txType === TxType.Transfer || txType === TxType.Withdraw) {
-      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx, updateState);
-      if (parts.length == 0) {
-        throw new Error(`insufficient funds`);
+      // we set allowPartial flag here to get parts anywhere
+      const parts = await this.getTransactionParts(tokenAddress, amountGwei, totalPerTx, updateState, true);
+      const totalBalance = await this.getTotalBalance(tokenAddress, false);
+
+      let partsSumm = BigInt(0);
+      for(let i = 0; i < parts.length; i++) {
+        partsSumm += parts[i].amount;
       }
 
-      txCnt = parts.length;
+      txCnt = parts.length > 0 ? parts.length : 1;  // if we haven't funds for atomic fee - suppose we can make one tx
       total = totalPerTx * BigInt(txCnt);
+
+      insufficientFunds = (partsSumm < amountGwei || partsSumm + total > totalBalance) ? true : false;
+    } else {
+      // Deposit and BridgeDeposit cases are independent on the user balance
+      // Fee got from the native coins, so any deposit can be make within single tx
     }
-    return {total, totalPerTx, txCnt, relayer, l1};
+
+    return {total, totalPerTx, txCnt, relayer, l1, insufficientFunds};
   }
 
   // Relayer fee component. Do not use it directly
@@ -775,6 +791,7 @@ export class ZkBobClient {
   }
 
   // Account + notes balance excluding fee needed to transfer or withdraw it
+  // TODO: need to optimize for edge cases (account limit calculating)
   public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
@@ -784,87 +801,99 @@ export class ZkBobClient {
     let result: bigint;
 
     const txFee = await this.atomicTxFee(tokenAddress);
-    const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
-    let notesBalance = BigInt(0);
+    const notesParts = this.getGroupedNotes(tokenAddress);
 
-    let txCnt = 1;
-    if (usableNotes.length > CONSTANTS.IN) {
-      txCnt += Math.ceil((usableNotes.length - CONSTANTS.IN) / CONSTANTS.IN);
-    }
+    let summ = BigInt(0);
+    let oneTxPart = accountBalance;
+    let i = 0;
+    do {
+      if (i < notesParts.length) {
+        oneTxPart += notesParts[i];
+      }
 
-    for(let i = 0; i < usableNotes.length; i++) {
-      const curNote = usableNotes[i][1];
-      notesBalance += BigInt(curNote.b)
-    }
+      if(oneTxPart < txFee) {
+        break;
+      }
 
-    let summ = accountBalance + notesBalance - txFee * BigInt(txCnt);
-    if (summ < 0) {
-      summ = BigInt(0);
-    }
+      summ += (oneTxPart - txFee);
+
+      oneTxPart = BigInt(0);
+      i++;
+    } while(i < notesParts.length);
+
 
     return summ;
   }
 
   // Calculate multitransfer configuration for specified token amount and fee per transaction
   // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
-  public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true): Promise<Array<TxAmount>> {
+  // Use allowPartial flag to return tx parts in case of insufficient funds for requested tx amount
+  // (otherwise the void array will be returned in case of insufficient funds)
+  // This method ALLOWS creating transaction parts less than MIN_TX_AMOUNT (check it before tx creating)
+  public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true, allowPartial: boolean = false): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
       await this.updateState(tokenAddress);
     }
 
     let result: Array<TxAmount> = [];
-
-    const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
+    let notesParts = this.getGroupedNotes(tokenAddress);
 
     let remainAmount = amountGwei;
-
-    if (accountBalance >= remainAmount + feeGwei) {
-      result.push({amount: remainAmount, fee: feeGwei, accountLimit: BigInt(0)});
-    } else {
-      let notesParts: Array<bigint> = [];
-      let curPart = BigInt(0);
-      for(let i = 0; i < usableNotes.length; i++) {
-        const curNote = usableNotes[i][1];
-
-        if (i > 0 && i % CONSTANTS.IN == 0) {
-          notesParts.push(curPart);
-          curPart = BigInt(0);
-        }
-
-        curPart += BigInt(curNote.b);
-
-        if (i == usableNotes.length - 1) {
-          notesParts.push(curPart);
-        }
-      }
-
-      let oneTxPart = accountBalance;
-
-      for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
+    let oneTxPart = accountBalance;
+    let i = 0;
+    do {
+      if (i < notesParts.length) {
         oneTxPart += notesParts[i];
-        if (oneTxPart - feeGwei > remainAmount) {
-          oneTxPart = remainAmount + feeGwei;
-        }
-
-        if(oneTxPart < feeGwei || oneTxPart < MIN_TX_AMOUNT) {
-          break;
-        }
-
-        result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
-
-        remainAmount -= (oneTxPart - feeGwei);
-        oneTxPart = BigInt(0);
       }
 
-      if(remainAmount > 0){
-        result = [];
+      if (oneTxPart - feeGwei > remainAmount) {
+        oneTxPart = remainAmount + feeGwei;
+      }
+
+      if(oneTxPart < feeGwei) {
+        break;
+      }
+
+      result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
+
+      remainAmount -= (oneTxPart - feeGwei);
+      oneTxPart = BigInt(0);
+      i++;
+    } while(i < notesParts.length && remainAmount > 0);
+
+    if (remainAmount > 0 && allowPartial == false) {
+      result = [];
+    }
+    
+    return result;
+  }
+
+  // calculate summ of notes grouped by CONSTANTS::IN
+  private getGroupedNotes(tokenAddress: string): Array<bigint> {
+    const state = this.zpStates[tokenAddress];
+    const usableNotes = state.usableNotes();
+
+    let notesParts: Array<bigint> = [];
+    let curPart = BigInt(0);
+    for(let i = 0; i < usableNotes.length; i++) {
+      const curNote = usableNotes[i][1];
+
+      if (i > 0 && i % CONSTANTS.IN == 0) {
+        notesParts.push(curPart);
+        curPart = BigInt(0);
+      }
+
+      curPart += BigInt(curNote.b);
+
+      if (i == usableNotes.length - 1) {
+        notesParts.push(curPart);
       }
     }
 
-    return result;
+    return notesParts;
   }
 
   // The deposit and withdraw amount is limited by few factors:
