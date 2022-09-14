@@ -769,7 +769,7 @@ export class ZkBobClient {
       insufficientFunds = (partsSumm < amountGwei || partsSumm + total > totalBalance) ? true : false;
     } else {
       // Deposit and BridgeDeposit cases are independent on the user balance
-      // Fee getted from the native coins, so any deposit can be make within single tx
+      // Fee got from the native coins, so any deposit can be make within single tx
     }
 
     return {total, totalPerTx, txCnt, relayer, l1, insufficientFunds};
@@ -791,6 +791,7 @@ export class ZkBobClient {
   }
 
   // Account + notes balance excluding fee needed to transfer or withdraw it
+  // TODO: need to optimize for edge cases (account limit calculating)
   public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
@@ -800,24 +801,27 @@ export class ZkBobClient {
     let result: bigint;
 
     const txFee = await this.atomicTxFee(tokenAddress);
-    const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
-    let notesBalance = BigInt(0);
+    const notesParts = this.getGroupedNotes(tokenAddress);
 
-    let txCnt = 1;
-    if (usableNotes.length > CONSTANTS.IN) {
-      txCnt += Math.ceil((usableNotes.length - CONSTANTS.IN) / CONSTANTS.IN);
-    }
+    let summ = BigInt(0);
+    let oneTxPart = accountBalance;
+    let i = 0;
+    do {
+      if (i < notesParts.length) {
+        oneTxPart += notesParts[i];
+      }
 
-    for(let i = 0; i < usableNotes.length; i++) {
-      const curNote = usableNotes[i][1];
-      notesBalance += BigInt(curNote.b)
-    }
+      if(oneTxPart < txFee) {
+        break;
+      }
 
-    let summ = accountBalance + notesBalance - txFee * BigInt(txCnt);
-    if (summ < 0) {
-      summ = BigInt(0);
-    }
+      summ += (oneTxPart - txFee);
+
+      oneTxPart = BigInt(0);
+      i++;
+    } while(i < notesParts.length);
+
 
     return summ;
   }
@@ -826,6 +830,7 @@ export class ZkBobClient {
   // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
   // Use allowPartial flag to return tx parts in case of insufficient funds for requested tx amount
   // (otherwise the void array will be returned in case of insufficient funds)
+  // This method ALLOWS creating transaction parts less than MIN_TX_AMOUNT (check it before tx creating)
   public async getTransactionParts(tokenAddress: string, amountGwei: bigint, feeGwei: bigint, updateState: boolean = true, allowPartial: boolean = false): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
@@ -833,56 +838,62 @@ export class ZkBobClient {
     }
 
     let result: Array<TxAmount> = [];
-
-    const usableNotes = state.usableNotes();
     const accountBalance = BigInt(state.accountBalance());
+    let notesParts = this.getGroupedNotes(tokenAddress);
 
     let remainAmount = amountGwei;
-
-    if (accountBalance >= remainAmount + feeGwei) {
-      result.push({amount: remainAmount, fee: feeGwei, accountLimit: BigInt(0)});
-    } else {
-      let notesParts: Array<bigint> = [];
-      let curPart = BigInt(0);
-      for(let i = 0; i < usableNotes.length; i++) {
-        const curNote = usableNotes[i][1];
-
-        if (i > 0 && i % CONSTANTS.IN == 0) {
-          notesParts.push(curPart);
-          curPart = BigInt(0);
-        }
-
-        curPart += BigInt(curNote.b);
-
-        if (i == usableNotes.length - 1) {
-          notesParts.push(curPart);
-        }
-      }
-
-      let oneTxPart = accountBalance;
-
-      for(let i = 0; i < notesParts.length && remainAmount > 0; i++) {
+    let oneTxPart = accountBalance;
+    let i = 0;
+    do {
+      if (i < notesParts.length) {
         oneTxPart += notesParts[i];
-        if (oneTxPart - feeGwei > remainAmount) {
-          oneTxPart = remainAmount + feeGwei;
-        }
-
-        if(oneTxPart < feeGwei || (oneTxPart - feeGwei) < MIN_TX_AMOUNT) {
-          break;
-        }
-
-        result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
-
-        remainAmount -= (oneTxPart - feeGwei);
-        oneTxPart = BigInt(0);
       }
 
-      if (remainAmount > 0 && allowPartial == false) {
-        result = [];
+      if (oneTxPart - feeGwei > remainAmount) {
+        oneTxPart = remainAmount + feeGwei;
+      }
+
+      if(oneTxPart < feeGwei) {
+        break;
+      }
+
+      result.push({amount: oneTxPart - feeGwei, fee: feeGwei, accountLimit: BigInt(0)});
+
+      remainAmount -= (oneTxPart - feeGwei);
+      oneTxPart = BigInt(0);
+      i++;
+    } while(i < notesParts.length && remainAmount > 0);
+
+    if (remainAmount > 0 && allowPartial == false) {
+      result = [];
+    }
+    
+    return result;
+  }
+
+  // calculate summ of notes grouped by CONSTANTS::IN
+  private getGroupedNotes(tokenAddress: string): Array<bigint> {
+    const state = this.zpStates[tokenAddress];
+    const usableNotes = state.usableNotes();
+
+    let notesParts: Array<bigint> = [];
+    let curPart = BigInt(0);
+    for(let i = 0; i < usableNotes.length; i++) {
+      const curNote = usableNotes[i][1];
+
+      if (i > 0 && i % CONSTANTS.IN == 0) {
+        notesParts.push(curPart);
+        curPart = BigInt(0);
+      }
+
+      curPart += BigInt(curNote.b);
+
+      if (i == usableNotes.length - 1) {
+        notesParts.push(curPart);
       }
     }
 
-    return result;
+    return notesParts;
   }
 
   // The deposit and withdraw amount is limited by few factors:
