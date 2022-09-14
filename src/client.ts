@@ -133,7 +133,7 @@ export class ZeropoolClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network.getRpcUrl(), BigInt(denominator));
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network, BigInt(denominator));
     }
 
     return client;

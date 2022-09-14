@@ -3,7 +3,7 @@ import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, in
 
 import { FileCache } from './file-cache';
 
-const wasmPath = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
+const WASM_PATH = new URL('libzeropool-rs-wasm-web-mt/web_bg.wasm', import.meta.url);
 
 let txParams: Params;
 let treeParams: Params;
@@ -12,7 +12,7 @@ let txParser: TxParser;
 const obj = {
   async initWasm(paramUrls: { txParams: string; treeParams: string }) {
     console.info('Initializing web worker...');
-    await init(wasmPath);
+    await init(WASM_PATH);
     await initThreadPool(navigator.hardwareConcurrency);
 
     const cache = await FileCache.init();

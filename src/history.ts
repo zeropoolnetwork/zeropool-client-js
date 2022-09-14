@@ -1,10 +1,9 @@
 import { openDB, IDBPDatabase } from 'idb';
-import Web3 from 'web3';
 import { Account, Note } from 'libzeropool-rs-wasm-web';
 import { zp } from './zp';
-import { ShieldedTx, TxType } from './tx';
-import { toCanonicalSignature } from './utils';
+import { TxType } from './tx';
 import { CONSTANTS } from './constants';
+import { NetworkBackend } from './networks/network';
 
 export enum HistoryTransactionType {
   Deposit = 1,
@@ -99,6 +98,7 @@ const HISTORY_STATE_TABLE = 'HISTORY_STATE';
 export class HistoryStorage {
   private db: IDBPDatabase;
   private syncIndex = -1;
+  private network: NetworkBackend;
 
   private queuedTxs = new Map<string, HistoryRecord[]>(); // jobId -> HistoryRecord[]
   //(while tx isn't processed on relayer)
@@ -115,14 +115,13 @@ export class HistoryStorage {
   private unparsedPendingMemo = new Map<number, DecryptedMemo>();  // local decrypted pending memos cache
   private currentHistory = new Map<number, HistoryRecord>();  // local history cache
   private syncHistoryPromise: Promise<void> | undefined;
-  private web3;
 
-  constructor(db: IDBPDatabase, rpcUrl: string) {
+  constructor(db: IDBPDatabase, network: NetworkBackend) {
     this.db = db;
-    this.web3 = new Web3(rpcUrl);
+    this.network = network;
   }
 
-  static async init(db_id: string, rpcUrl: string): Promise<HistoryStorage> {
+  static async init(db_id: string, network: NetworkBackend): Promise<HistoryStorage> {
     const db = await openDB(`zeropool.${db_id}.history`, 2, {
       upgrade(db) {
         db.createObjectStore(TX_TABLE);   // table holds parsed history transactions
@@ -132,7 +131,7 @@ export class HistoryStorage {
       }
     });
 
-    const storage = new HistoryStorage(db, rpcUrl);
+    const storage = new HistoryStorage(db, network);
     await storage.preloadCache();
 
     return storage;
@@ -364,87 +363,40 @@ export class HistoryStorage {
   private async convertToHistory(memo: DecryptedMemo, pending: boolean): Promise<HistoryRecordIdx[]> {
     let txHash = memo.txHash;
     if (txHash) {
-      const txData = await this.web3.eth.getTransaction(txHash);
-      if (txData && txData.blockNumber && txData.input) {
-        const block = await this.web3.eth.getBlock(txData.blockNumber);
-        if (block) {
-          let ts: number = 0;
-          if (typeof block.timestamp === "number") {
-            ts = block.timestamp;
-          } else if (typeof block.timestamp === "string") {
-            ts = Number(block.timestamp);
-          }
+      const tx = await this.network.getTransaction(txHash);
+      if (tx) {
+        // Decode transaction data
+        let allRecords: HistoryRecordIdx[] = [];
+        if (tx.txType == TxType.Deposit) {
+          let rec = HistoryRecord.deposit(tx.depositAddress!, tx.tokenAmount, tx.fee, tx.timestamp, txHash, pending);
+          allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
-          // Decode transaction data
-          try {
-            const tx = ShieldedTx.decode(txData.input);
-            const feeAmount = BigInt('0x' + tx.memo.substr(0, 16))
+          const outs = this.processOuts(memo, tx.fee, tx.timestamp, txHash, pending);
+          allRecords = allRecords.concat(outs);
+        } else if (tx.txType == TxType.BridgeDeposit) {
+          let rec = HistoryRecord.deposit(tx.depositAddress!, tx.tokenAmount, tx.fee, tx.timestamp, txHash, pending);
+          allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
-            if (tx.selector.toLowerCase() == "af989083") {
-              // All data is collected here. Let's analyze it
-
-              let allRecords: HistoryRecordIdx[] = [];
-              if (tx.txType == TxType.Deposit) {
-                // here is a deposit transaction (approvable method)
-                // source address are recovered from the signature
-                if (tx.extra && tx.extra.length >= 128) {
-                  const fullSig = toCanonicalSignature(tx.extra.substr(0, 128));
-                  const nullifier = '0x' + tx.nullifier.toString(16).padStart(64, '0');
-                  const depositHolderAddr = await this.web3.eth.accounts.recover(nullifier, fullSig);
-
-                  let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
-                  allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-
-                  const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
-                  allRecords = allRecords.concat(outs);
-                } else {
-                  //incorrect signature
-                  throw new Error(`no signature for approvable deposit`);
-                }
-
-              } else if (tx.txType == TxType.BridgeDeposit) {
-                // here is a deposit transaction (permittable token)
-                // source address in the memo block (20 bytes, starts from 16 bytes offset)
-                const depositHolderAddr = '0x' + tx.memo.substr(32, 40);  // TODO: Check it!
-
-                let rec = HistoryRecord.deposit(depositHolderAddr, tx.tokenAmount, feeAmount, ts, txHash, pending);
-                allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-
-                const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
-                allRecords = allRecords.concat(outs);
-
-              } else if (tx.txType == TxType.Transfer) {
-                const outs = this.processOuts(memo, feeAmount, ts, txHash, pending);
-                allRecords = allRecords.concat(outs);
-              } else if (tx.txType == TxType.Withdraw) {
-                // withdrawal transaction (destination address in the memoblock)
-                const withdrawDestAddr = '0x' + tx.memo.substr(32, 40);
-
-                let rec = HistoryRecord.withdraw(withdrawDestAddr, -(tx.tokenAmount + feeAmount), feeAmount, ts, txHash, pending);
-                allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-              }
-
-              // if we found txHash in the blockchain -> remove it from the saved tx array
-              this.sendedTxs.delete(txHash);
-
-              return allRecords;
-
-            } else {
-              throw new Error(`Cannot decode calldata for tx ${txHash}: incorrect selector ${tx.selector}`);
-            }
-          }
-          catch (e) {
-            throw new Error(`Cannot decode calldata for tx ${txHash}: ${e}`);
-          }
+          const outs = this.processOuts(memo, tx.fee, tx.timestamp, txHash, pending);
+          allRecords = allRecords.concat(outs);
+        } else if (tx.txType == TxType.Transfer) {
+          const outs = this.processOuts(memo, tx.fee, tx.timestamp, txHash, pending);
+          allRecords = allRecords.concat(outs);
+        } else if (tx.txType == TxType.Withdraw) {
+          let rec = HistoryRecord.withdraw(tx.withdrawAddress!, -(tx.tokenAmount + tx.fee), tx.fee, tx.timestamp, txHash, pending);
+          allRecords.push(HistoryRecordIdx.create(rec, memo.index));
         }
 
-        throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
+        // if we found txHash in the blockchain -> remove it from the saved tx array
+        this.sendedTxs.delete(txHash);
+
+        return allRecords;
       } else {
         // Look for a transactions, initiated by the user and try to convert it to the HistoryRecord
-        let sendedRecords = this.sendedTxs[txHash];
-        if (sendedRecords !== undefined) {
-          console.log(`HistoryStorage: hash ${txHash} doesn't found, but it corresponds to the previously saved ${sendedRecords.length} transaction(s)`);
-          return sendedRecords.map((oneRecord, index) => HistoryRecordIdx.create(oneRecord, memo.index + index));
+        let sentRecords = this.sendedTxs[txHash];
+        if (sentRecords !== undefined) {
+          console.log(`HistoryStorage: hash ${txHash} could not be found, but it corresponds to the previously saved ${sentRecords.length} transaction(s)`);
+          return sentRecords.map((oneRecord, index) => HistoryRecordIdx.create(oneRecord, memo.index + index));
         }
       }
 

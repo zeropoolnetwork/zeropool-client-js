@@ -15,11 +15,11 @@
     ],
     "rootDir": "src",
     "baseUrl": "src",
-    "paths": {
-      "@/*": [
-        "*"
-      ]
-    },
+//    "paths": {
+//      "@/*": [
+//        "*"
+//      ]
+//    },
     "plugins": [
       {
         "transform": "typescript-transform-paths",

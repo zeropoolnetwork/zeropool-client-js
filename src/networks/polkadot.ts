@@ -1,23 +1,27 @@
-import { NetworkBackend } from './network';
+import { NetworkBackend, TxData } from './network';
 
 export class PolkadotNetwork implements NetworkBackend {
-    async getChainId(): Promise<number> {
-        return 0; // FIXME
-    }
+  async getChainId(): Promise<number> {
+    return 0; // FIXME
+  }
 
-    async getDenominator(contractAddress: string): Promise<bigint> {
-        return BigInt(1000); // FIXME
-    }
+  async getDenominator(contractAddress: string): Promise<bigint> {
+    return BigInt(1000); // FIXME
+  }
 
-    isSignatureCompact(): boolean {
-        return false;
-    }
+  isSignatureCompact(): boolean {
+    return false;
+  }
 
-    defaultNetworkName(): string {
-        return 'polkadot';
-    }
+  defaultNetworkName(): string {
+    return 'polkadot';
+  }
 
-    getRpcUrl(): string {
-        return '';
-    }
+  getRpcUrl(): string {
+    return '';
+  }
+
+  getTransaction(hash: string): Promise<TxData | null> {
+    throw new Error('unimplemented');
+  }
 }

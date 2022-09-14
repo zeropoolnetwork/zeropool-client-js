@@ -9,10 +9,12 @@ module.exports = {
   output: {
     path: path.join(process.cwd(), 'lib'),
     filename: '[name].js',
+    assetModuleFilename: '[name][ext]',
     publicPath: './',
   },
   target: 'webworker',
-  mode: 'production',
+  mode: 'development',
+  devtool: 'source-map',
   module: {
     rules: [
       {
