@@ -9,7 +9,7 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history'
 import { IndexedTx } from 'libzkbob-rs-wasm-web';
 
-const MIN_TX_AMOUNT = BigInt(10000000);
+const MIN_TX_AMOUNT = BigInt(50000000);
 const DEFAULT_TX_FEE = BigInt(100000000);
 const BATCH_SIZE = 100;
 
