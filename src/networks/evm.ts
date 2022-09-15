@@ -104,7 +104,7 @@ export class EvmNetwork implements NetworkBackend {
     if (tx.txType == TxType.Deposit) {
       // here is a deposit transaction (approvable method)
       // source address is recovered from the signature
-      if (tx.extra && tx.extra.length >= 128) {
+      if (!tx.extra || tx.extra.length < 128) {
         throw new Error(`no signature for approvable deposit`);
       }
 
