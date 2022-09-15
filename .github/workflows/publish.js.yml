@@ -1,15 +1,14 @@
-
-name: Compile library
+name: Build and publish
 
 on:
   push:
-    branches: [ "develop" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
-  check:
+  publish:
     runs-on: ubuntu-latest
 
     strategy:
@@ -32,3 +31,11 @@ jobs:
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: check
+    - name: Building library
+      uses: borales/actions-yarn@v3.0.0
+      with:
+        cmd: build
+    - name: Publishing library to the npm.js
+    - run: npm publish --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
