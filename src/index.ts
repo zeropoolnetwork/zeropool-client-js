@@ -4,17 +4,19 @@ import { Params, default as initWasm } from 'libzkbob-rs-wasm-web';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-export { ZeropoolClient } from './client';
+export { ZkBobClient, TxAmount, FeeAmount, PoolLimits } from './client';
+
+export { TxType } from './tx';
 
 export { HistoryRecord, HistoryTransactionType } from './history'
 
-export class ZeroPoolLibState {
+export class ZkBobLibState {
   public fileCache: FileCache;
   public worker: any;
   public snarkParams: SnarkParams;
 }
 
-export async function init(wasmPath: string, workerPath: string, snarkParams: SnarkConfigParams): Promise<ZeroPoolLibState> {
+export async function init(wasmPath: string, workerPath: string, snarkParams: SnarkConfigParams): Promise<ZkBobLibState> {
   const fileCache = await FileCache.init();
 
   const worker: any = wrap(new Worker(workerPath));

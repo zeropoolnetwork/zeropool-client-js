@@ -1,15 +1,17 @@
 import { expose } from 'comlink';
-import { Proof, Params, default as init } from 'libzkbob-rs-wasm-web';
+import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, initThreadPool } from 'libzkbob-rs-wasm-web';
 
 import { FileCache } from './file-cache';
 
 let txParams: Params;
 let treeParams: Params;
+let txParser: TxParser;
 
 const obj = {
   async initWasm(url: string, paramUrls: { txParams: string; treeParams: string }) {
     console.info('Initializing web worker...');
     await init(url);
+    await initThreadPool(navigator.hardwareConcurrency);
 
     const cache = await FileCache.init();
 
@@ -33,6 +35,7 @@ const obj = {
       treeParams = Params.fromBinaryExtended(new Uint8Array(treeParamsData!), false, false);
     }
 
+    txParser = TxParser._new()
     console.info('Web worker init complete.');
   },
 
@@ -48,6 +51,15 @@ const obj = {
     return new Promise(async resolve => {
       console.debug('Web worker: proveTree');
       const result = Proof.tree(treeParams, pub, sec);
+      resolve(result);
+    });
+  },
+
+  async parseTxs(sk: Uint8Array, txs: IndexedTx[]): Promise<ParseTxsResult> {
+    return new Promise(async resolve => {
+      console.debug('Web worker: parseTxs');
+      const result = txParser.parseTxs(sk, txs)
+      sk.fill(0)
       resolve(result);
     });
   },
