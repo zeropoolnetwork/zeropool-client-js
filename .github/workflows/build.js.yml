@@ -1,5 +1,5 @@
 
-name: Compile library
+name: Build library
 
 on:
   push:
@@ -31,4 +31,4 @@ jobs:
     - name: Checking compilation
       uses: borales/actions-yarn@v3.0.0
       with:
-        cmd: check
+        cmd: build

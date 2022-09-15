@@ -1,9 +1,7 @@
-name: Build and publish
+name: Build and publish library
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 
@@ -31,11 +29,10 @@ jobs:
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: check
-    - name: Building library
+    - name: Build and publish library
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: build
-    - name: Publishing library to the npm.js
     - run: npm publish --dry-run
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
+      env:
+        NODE_AUTH_TOKEN: ${{secrets.npm_token}}
