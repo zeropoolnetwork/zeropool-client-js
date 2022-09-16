@@ -7,8 +7,8 @@ import { threads } from 'wasm-feature-detect';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-const WASM_ST_PATH = new URL('libzeropool-rs-wasm-web/web_bg.wasm', import.meta.url).href;
-const WASM_MT_PATH = new URL('libzeropool-rs-wasm-web-mt/web-mt_bg.wasm', import.meta.url).href;
+const WASM_ST_PATH = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
+const WASM_MT_PATH = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
 
 export let zp: any = zpSt;
 
