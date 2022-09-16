@@ -4,14 +4,18 @@ import { Contract } from 'web3-eth-contract'
 import { NetworkBackend, TxData } from './network';
 import { ShieldedTx, TxType } from '../tx';
 import { toCanonicalSignature } from '../utils';
+import PromiseThrottle from 'promise-throttle';
+
+const THROTTLE_RPS = 10;
 
 export class EvmNetwork implements NetworkBackend {
   contract: Contract;
   token: Contract;
   rpcUrl: string;
   web3: Web3;
+  throttle: PromiseThrottle;
 
-  constructor(rpcUrl: string) {
+  constructor(rpcUrl: string, requestsPerSecond: number = THROTTLE_RPS) {
     this.rpcUrl = rpcUrl;
 
     this.web3 = new Web3(rpcUrl);
@@ -59,6 +63,10 @@ export class EvmNetwork implements NetworkBackend {
       }
     ];
     this.token = new this.web3.eth.Contract(abiTokenJson) as Contract;
+    this.throttle = new PromiseThrottle({
+      requestsPerSecond,
+      promiseImplementation: Promise,
+    });
   }
 
   public async getChainId(): Promise<number> {
@@ -83,12 +91,12 @@ export class EvmNetwork implements NetworkBackend {
   }
 
   async getTransaction(hash: string): Promise<TxData | null> {
-    const txData = await this.web3.eth.getTransaction(hash);
+    const txData = await this.throttle.add(() => this.web3.eth.getTransaction(hash));
     if (!txData || !txData.blockNumber || !txData.input) {
       return null;
     }
 
-    const block = await this.web3.eth.getBlock(txData.blockNumber!);
+    const block = await this.throttle.add(() => this.web3.eth.getBlock(txData.blockNumber!));
     if (!block) {
       throw new Error(`Unable to get timestamp for block ${txData.blockNumber}`);
     }

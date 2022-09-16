@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -26,6 +26,7 @@
     "libzeropool-rs-wasm-web": "0.6.4",
     "libzeropool-rs-wasm-web-mt": "0.6.4",
     "near-api-js": "^1.0.0",
+    "promise-throttle": "^1.1.2",
     "regenerator-runtime": "^0.13.9",
     "wasm-feature-detect": "^1.2.11",
     "web3": "^1.7.0",
