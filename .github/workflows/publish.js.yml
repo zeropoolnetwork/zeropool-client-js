@@ -22,6 +22,9 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+        registry-url: 'https://registry.npmjs.org'
+      env:
+        NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
     - name: Installing dependecies
       uses: borales/actions-yarn@v3.0.0
       with:
@@ -35,5 +38,3 @@ jobs:
       with:
         cmd: build
     - run: npm publish
-      env:
-        NPM_TOKEN: ${{secrets.NPM_TOKEN}}
