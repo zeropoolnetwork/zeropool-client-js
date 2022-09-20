@@ -1,0 +1,34 @@
+
+name: Build library
+
+on:
+  push:
+    branches: [ "develop" ]
+  pull_request:
+    branches: [ "develop" ]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [16.x]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Installing dependecies
+      uses: borales/actions-yarn@v3.0.0
+      with:
+        cmd: install
+    - name: Checking compilation
+      uses: borales/actions-yarn@v3.0.0
+      with:
+        cmd: build
