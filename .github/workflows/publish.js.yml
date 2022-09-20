@@ -10,31 +10,41 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
 
-    strategy:
-      matrix:
-        node-version: [16.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
-
     steps:
     - uses: actions/checkout@v3
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v3
+    - uses: actions/setup-node@v3
       with:
-        node-version: ${{ matrix.node-version }}
+        node-version: 16
         cache: 'npm'
         registry-url: 'https://registry.npmjs.org'
       env:
         NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+        
+    - name: Read node from package.json
+      id: package-version
+      uses: martinbeentjes/npm-get-version-action@main
+        
+    - name: Show node version number
+      run: echo "Version is ${{ steps.package-version.outputs.current-version }}"
+      
     - name: Installing dependecies
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: install
+        
     - name: Checking compilation
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: check
+        
     - name: Build and publish library
       uses: borales/actions-yarn@v3.0.0
       with:
         cmd: build
     - run: npm publish
+    
+    - name: Create tag
+      uses: rickstaa/action-create-tag@v1
+      with:
+        tag: ${{ steps.package-version.outputs.current-version }}
+        message: ""
