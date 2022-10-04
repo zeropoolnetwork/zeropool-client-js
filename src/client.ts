@@ -1,7 +1,7 @@
-import { validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
+import { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { addressFromSignature, ethAddrToBuf, hexToBuf, toCompactSignature, toTwosComplementHex, truncateHexPrefix } from './utils';
+import { ethAddrToBuf, toCompactSignature, toTwosComplementHex, truncateHexPrefix } from './utils';
 import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -39,7 +39,8 @@ export interface TxToRelayer {
   txType: TxType;
   memo: string;
   proof: Proof;
-  depositSignature?: string
+  depositSignature?: string;
+  depositId?: number;
 }
 
 export interface JobInfo {
@@ -394,11 +395,7 @@ export class ZeropoolClient {
       // permittable deposit signature should be calculated for the typed data
       const value = amountWei + feeWei;
       const salt = '0x' + toTwosComplementHex(BigInt(txData.public.nullifier), 32);
-      let signature = truncateHexPrefix(await signTypedData(deadline, value, salt));
-
-      if (this.config.network.isSignatureCompact()) {
-        signature = toCompactSignature(signature);
-      }
+      let signature = toCompactSignature(truncateHexPrefix(await signTypedData(deadline, value, salt)));
 
       let tx = { txType: TxType.BridgeDeposit, memo: txData.memo, proof: txProof, depositSignature: signature };
       const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
@@ -588,7 +585,7 @@ export class ZeropoolClient {
     // it should be null for EVM
     feeWei: bigint = BigInt(0),
     outsWei: Output[] = [],
-    includeAddressInTx: boolean = false,
+    depositId: number | null = null,
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
@@ -632,22 +629,12 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    // regular deposit through approve allowance: sign transaction nullifier
-    let dataToSign = '0x' + BigInt(txData.public.nullifier).toString(16).padStart(64, '0');
+    const depositSignature = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress)
 
-    const signature = truncateHexPrefix(await sign(dataToSign));
-
-    let fullSignature = signature;
-    if (includeAddressInTx) {
-      const addr = truncateHexPrefix(fromAddress);
-      fullSignature = addr + signature;
+    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature };
+    if (depositId !== null) {
+      tx.depositId = depositId;
     }
-
-    if (this.config.network.isSignatureCompact()) {
-      fullSignature = toCompactSignature(fullSignature);
-    }
-
-    let tx = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature: fullSignature };
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)

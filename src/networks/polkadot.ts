@@ -1,16 +1,21 @@
 import { NetworkBackend, TxData } from './network';
+import { toCompactSignature, truncateHexPrefix } from '../utils';
 
 export class PolkadotNetwork implements NetworkBackend {
   async getChainId(): Promise<number> {
-    return 0; // FIXME
+    return 0;
   }
 
   async getDenominator(contractAddress: string): Promise<bigint> {
-    return BigInt(1000); // FIXME
+    return BigInt(1000);
   }
 
-  isSignatureCompact(): boolean {
-    return false;
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, address: string): Promise<string> {
+    const dataToSign = '0x' + nullifier.toString(16).padStart(64, '0');
+    const signature = truncateHexPrefix(await signFn(dataToSign));
+    const addr = truncateHexPrefix(address);
+
+    return addr + signature; // TODO: sign both address and nullifier? There is no ecrecover in polkadot.
   }
 
   defaultNetworkName(): string {

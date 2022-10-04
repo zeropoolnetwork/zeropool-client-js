@@ -12,7 +12,7 @@ export interface TxData {
 export interface NetworkBackend {
   getChainId(): Promise<number>;
   getDenominator(contractAddress: string): Promise<bigint>;
-  isSignatureCompact(): boolean;
+  signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, address: string): Promise<string>;
   defaultNetworkName(): string;
   getRpcUrl(): string;
   getTransaction(hash: string): Promise<TxData | null>;

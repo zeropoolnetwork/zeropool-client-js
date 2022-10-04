@@ -3,7 +3,7 @@ import { AbiItem } from 'web3-utils';
 import { Contract } from 'web3-eth-contract'
 import { NetworkBackend, TxData } from './network';
 import { ShieldedTx, TxType } from '../tx';
-import { toCanonicalSignature } from '../utils';
+import { toCanonicalSignature, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
 
 const THROTTLE_RPS = 10;
@@ -78,8 +78,10 @@ export class EvmNetwork implements NetworkBackend {
     return BigInt(await this.contract.methods.denominator().call());
   }
 
-  isSignatureCompact(): boolean {
-    return true;
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _address: string): Promise<string> {
+    const dataToSign = '0x' + nullifier.toString(16).padStart(64, '0');
+    const signature = truncateHexPrefix(await signFn(dataToSign));
+    return toCompactSignature(signature);
   }
 
   defaultNetworkName(): string {

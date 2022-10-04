@@ -3,13 +3,19 @@ import borsh from 'borsh'
 
 import { NetworkBackend, TxData } from './network';
 import { TxType } from '../tx';
-import { bufToHex } from '../utils';
+import { bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
 
 export class NearNetwork implements NetworkBackend {
   private readonly relayerUrl: string;
 
   constructor(relayerUrl: string) {
     this.relayerUrl = relayerUrl;
+  }
+
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _address: string): Promise<string> {
+    const dataToSign = '0x' + nullifier.toString(16).padStart(64, '0');
+    const signature = truncateHexPrefix(await signFn(dataToSign));
+    return toCompactSignature(signature);
   }
 
   async getChainId(): Promise<number> {
