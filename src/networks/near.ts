@@ -99,6 +99,7 @@ class PoolCalldata {
   outCommit!: BN
   transferIndex!: BN
   energyAmount!: BN
+  tokenId!: string
   tokenAmount!: BN
   delta!: BN
   transactProof!: BN[]
@@ -107,6 +108,7 @@ class PoolCalldata {
   txType!: number
   memo!: Uint8Array
   depositAddress!: string
+  depositId!: number
 }
 
 
@@ -119,6 +121,7 @@ const BORSH_SCHEMA = new Map([[
       ['outCommit', 'u256'],
       ['transferIndex', 'u256'],
       ['energyAmount', 'u256'],
+      ['tokenId', 'string'],
       ['tokenAmount', 'u256'],
       ['delta', 'u256'],
 
@@ -130,6 +133,7 @@ const BORSH_SCHEMA = new Map([[
 
       ['memo', []],
       ['depositAddress', 'string'],
+      ['depositId', 'u64'],
     ]
   }
 ]])
