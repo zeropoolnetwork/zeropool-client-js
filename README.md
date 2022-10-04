@@ -2,6 +2,16 @@
 
 TypeScript/JavaScript client library for creating and sending shielded ZeroPool transactions.
 
+## Installation
+
+```bash
+npm install zeropool-client-js --save
+```
+or
+```bash
+yarn add zeropool-client-js
+```
+
 ## Setup
 The default Webpack 5 configuration should be sufficient for this library. The only requirement is that it must properly process the `new URL('...', import.meta.url)` syntax.
 
