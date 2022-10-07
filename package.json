@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.5.10",
+  "version": "0.5.14",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",

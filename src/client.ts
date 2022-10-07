@@ -41,6 +41,7 @@ export interface TxToRelayer {
   proof: Proof;
   depositSignature?: string;
   depositId?: number;
+  fromAddress?: string;
 }
 
 export interface JobInfo {
@@ -631,7 +632,7 @@ export class ZeropoolClient {
 
     const depositSignature = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress)
 
-    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature };
+    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature, fromAddress };
     if (depositId !== null) {
       tx.depositId = depositId;
     }

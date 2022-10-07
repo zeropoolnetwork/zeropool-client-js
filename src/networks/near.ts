@@ -4,12 +4,21 @@ import borsh from 'borsh'
 import { NetworkBackend, TxData } from './network';
 import { TxType } from '../tx';
 import { bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
+import PromiseThrottle from 'promise-throttle';
+import { BinaryReader } from '../utils';
+
+const THROTTLE_RPS = 4;
 
 export class NearNetwork implements NetworkBackend {
   private readonly relayerUrl: string;
+  private readonly throttle: PromiseThrottle;
 
-  constructor(relayerUrl: string) {
+  constructor(relayerUrl: string, requestsPerSecond = THROTTLE_RPS) {
     this.relayerUrl = relayerUrl;
+    this.throttle = new PromiseThrottle({
+      requestsPerSecond,
+      promiseImplementation: Promise,
+    });
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _address: string): Promise<string> {
@@ -23,11 +32,7 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async getDenominator(contractAddress: string): Promise<bigint> {
-    return BigInt(1);
-  }
-
-  isSignatureCompact(): boolean {
-    return true;
+    return BigInt('1000000000000000'); // FIXME: get from the contract
   }
 
   defaultNetworkName(): string {
@@ -39,16 +44,19 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async getTransaction(hash: string): Promise<TxData | null> {
-    const tx = await this.fetchBlockchainTx(hash);
-    if (tx === null) {
+    let tx;
+    try {
+      tx = await this.fetchBlockchainTx(hash);
+    } catch (e) {
+      console.debug('Failed to fetch tx', hash, e);
       return null;
     }
 
-    if (!tx.args || !tx.args.args_parsed || !tx.args.args_parsed.encoded_tx) {
-      throw new Error(`Unable to parse encoded_tx from tx ${hash}`);
+    if (!tx.args || !tx.args.args_base64) {
+      throw new Error(`Unable to parse calldata from tx ${hash}`);
     }
 
-    const calldata = borsh.deserialize(BORSH_SCHEMA, PoolCalldata, Buffer.from(tx.args.args_parsed.encoded_tx, 'base64'));
+    const calldata = deserializePoolData(Buffer.from(tx.args.args_base64, 'base64'));
     let txType
     switch (calldata.txType) {
       case 0: txType = TxType.Deposit; break;
@@ -74,22 +82,22 @@ export class NearNetwork implements NetworkBackend {
     };
   }
 
-  async fetchBlockchainTx(hash: string): Promise<NearTxData | null> {
+  async fetchBlockchainTx(hash: string): Promise<NearTxData> {
     const url = new URL(`/blockchain/tx/${hash}`, this.relayerUrl);
     const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    return await (await fetch(url.toString(), { headers })).json();
+    const res = await this.throttle.add(() => fetch(url.toString(), { headers }));
+    return await res.json();
   }
 }
 
 type NearTxData = {
   block_timestamp: number,
   args: {
-    args_parsed: {
-      encoded_tx: string,
-    },
+    args_base64: string,
   }
 }
 
+// TODO: Try using borsh-ts
 class PoolCalldata {
   constructor(data: Object) {
     Object.assign(this, data)
@@ -111,29 +119,23 @@ class PoolCalldata {
   depositId!: number
 }
 
+function deserializePoolData(data: Buffer): PoolCalldata {
+  const reader = new BinaryReader(data)
 
-const BORSH_SCHEMA = new Map([[
-  PoolCalldata,
-  {
-    kind: 'struct',
-    fields: [
-      ['nullifier', 'u256'],
-      ['outCommit', 'u256'],
-      ['transferIndex', 'u256'],
-      ['energyAmount', 'u256'],
-      ['tokenId', 'string'],
-      ['tokenAmount', 'u256'],
-      ['delta', 'u256'],
-
-      ['transactProof', ['u256', 8]],
-      ['rootAfter', 'u256'],
-      ['treeProof', ['u256', 8]],
-
-      ['txType', 'u16'],
-
-      ['memo', []],
-      ['depositAddress', 'string'],
-      ['depositId', 'u64'],
-    ]
-  }
-]])
+  return new PoolCalldata({
+    nullifier: reader.readU256(),
+    outCommit: reader.readU256(),
+    transferIndex: reader.readU256(),
+    energyAmount: reader.readU256(),
+    tokenId: reader.readString(),
+    tokenAmount: reader.readU256(),
+    delta: reader.readU256(),
+    transactProof: reader.readFixedArray(8, () => reader.readU256()),
+    rootAfter: reader.readU256(),
+    treeProof: reader.readFixedArray(8, () => reader.readU256()),
+    txType: reader.readU8(),
+    memo: reader.readDynamicBuffer(),
+    depositAddress: reader.readString(),
+    depositId: reader.readU64(),
+  })
+}
