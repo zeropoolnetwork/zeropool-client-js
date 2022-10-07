@@ -105,10 +105,10 @@ export class HistoryStorage {
   // We don't know txHashes for history records at that moment,
   // but we can assign it sequence number inside a job.
   // So in HistoryRecords array txHash should be interpreted
-  // as the index of transaction in correspondance of sending order
+  // as the index of transaction in correspondence of sending order
 
-  private sendedTxs = new Map<string, HistoryRecord[]>(); // txHash -> HistoryRecord[]
-  // (while we have a hash from relayer but it isn't indexed on RPC JSON)
+  private sentTxs = new Map<string, HistoryRecord[]>(); // txHash -> HistoryRecord[]
+  // (while we have a hash from relayer, but it isn't indexed on RPC JSON)
   // At that moment we should fill txHash for every history record correctly
 
   private unparsedMemo = new Map<number, DecryptedMemo>();  // local decrypted memos cache
@@ -183,7 +183,7 @@ export class HistoryStorage {
     return recordsArray.sort((rec1, rec2) => 0 - (rec1.timestamp > rec2.timestamp ? -1 : 1));
   }
 
-  // remember just sended transactions to restore history record immediately
+  // remember just sent transactions to restore history record immediately
   public keepQueuedTransactions(txs: HistoryRecord[], jobId: string) {
     this.queuedTxs.set(jobId, txs);
   }
@@ -196,12 +196,12 @@ export class HistoryStorage {
         let hashIndex = Number(oneTx.txHash);
         if (hashIndex >= 0 && hashIndex < txHashes.length) {
           oneTx.txHash = txHashes[hashIndex];
-          let array: HistoryRecord[] = this.sendedTxs[oneTx.txHash];
+          let array: HistoryRecord[] = this.sentTxs[oneTx.txHash];
           if (array === undefined) {
             array = [];
           }
           array.push(oneTx);
-          this.sendedTxs[oneTx.txHash] = array;
+          this.sentTxs[oneTx.txHash] = array;
         }
       }
     }
@@ -276,7 +276,7 @@ export class HistoryStorage {
     this.currentHistory.clear();
   }
 
-  // ------- Private rouutines --------
+  // ------- Private routines --------
 
   private async syncHistory(): Promise<void> {
     const startTime = Date.now();
@@ -304,7 +304,7 @@ export class HistoryStorage {
         processedPendingIndexes.push(oneMemo.index);
       }
 
-      let historyRedords = await Promise.all(historyPromises);
+      let historyRecords = await Promise.all(historyPromises);
 
       // delete all pending history records [we'll refresh them immediately]
       for (const [index, record] of this.currentHistory.entries()) {
@@ -314,7 +314,7 @@ export class HistoryStorage {
       }
 
       let newSyncIndex = this.syncIndex;
-      for (let oneSet of historyRedords) {
+      for (let oneSet of historyRecords) {
         for (let oneRec of oneSet) {
           console.log(`History record @${oneRec.index} has been created`);
 
@@ -388,12 +388,12 @@ export class HistoryStorage {
         }
 
         // if we found txHash in the blockchain -> remove it from the saved tx array
-        this.sendedTxs.delete(txHash);
+        this.sentTxs.delete(txHash);
 
         return allRecords;
       } else {
         // Look for a transactions, initiated by the user and try to convert it to the HistoryRecord
-        let sentRecords = this.sendedTxs[txHash];
+        let sentRecords = this.sentTxs[txHash];
         if (sentRecords !== undefined) {
           console.log(`HistoryStorage: hash ${txHash} could not be found, but it corresponds to the previously saved ${sentRecords.length} transaction(s)`);
           return sentRecords.map((oneRecord, index) => HistoryRecordIdx.create(oneRecord, memo.index + index));
