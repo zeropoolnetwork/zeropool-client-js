@@ -1,7 +1,6 @@
 import BN from 'bn.js';
-import borsh from 'borsh'
 
-import { NetworkBackend, TxData } from './network';
+import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
 import { bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
@@ -41,6 +40,20 @@ export class NearNetwork implements NetworkBackend {
 
   getRpcUrl(): string {
     return '';
+  }
+
+  disassembleRelayerTx(tx: string): RelayerTx {
+    const mined = tx.slice(0, 1) == '1';
+    const commitment = tx.slice(1, 65);
+    const hash = tx.slice(65, 109); // hash = 44 chars
+    const memo = tx.slice(109);
+
+    return {
+      mined,
+      hash,
+      commitment,
+      memo,
+    }
   }
 
   async getTransaction(hash: string): Promise<TxData | null> {

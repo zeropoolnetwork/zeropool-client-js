@@ -1,5 +1,12 @@
 import { TxType } from '../tx';
 
+export interface RelayerTx {
+  mined: boolean,
+  commitment: string,
+  hash: string,
+  memo: string,
+}
+
 export interface TxData {
   timestamp: number;
   txType: TxType,
@@ -16,4 +23,5 @@ export interface NetworkBackend {
   defaultNetworkName(): string;
   getRpcUrl(): string;
   getTransaction(hash: string): Promise<TxData | null>;
+  disassembleRelayerTx(tx: string): RelayerTx
 }

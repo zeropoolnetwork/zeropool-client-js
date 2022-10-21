@@ -1009,12 +1009,7 @@ export class ZeropoolClient {
             // Get the first leaf index in the tree
             const memo_idx = i + txIdx * OUTPLUSONE;
 
-            // tx structure from relayer: mined flag + txHash(32 bytes, 64 chars) + commitment(32 bytes, 64 chars) + memo
-            // 1. Extract memo block
-            const memo = tx.slice(129); // Skip mined flag, txHash and commitment
-
-            // 2. Get transaction commitment
-            const commitment = tx.substr(65, 64)
+            const { mined, hash, commitment, memo } = this.config.network.disassembleRelayerTx(tx);
 
             const indexedTx: IndexedTx = {
               index: memo_idx,
@@ -1022,17 +1017,14 @@ export class ZeropoolClient {
               commitment: commitment,
             }
 
-            // 3. Get txHash
-            const txHash = tx.substr(1, 64);
-
             // 4. Get mined flag
-            if (tx.substr(0, 1) === '1') {
+            if (mined) {
               indexedTxs.push(indexedTx);
-              txHashes[memo_idx] = '0x' + txHash;
+              txHashes[memo_idx] = hash;
               maxMinedIndex = Math.max(maxMinedIndex, memo_idx);
             } else {
               indexedTxsPending.push(indexedTx);
-              txHashesPending[memo_idx] = '0x' + txHash;
+              txHashesPending[memo_idx] = hash;
               maxPendingIndex = Math.max(maxPendingIndex, memo_idx);
             }
           }

@@ -1,4 +1,4 @@
-import { NetworkBackend, TxData } from './network';
+import { NetworkBackend, RelayerTx, TxData } from './network';
 import { toCompactSignature, truncateHexPrefix } from '../utils';
 
 export class PolkadotNetwork implements NetworkBackend {
@@ -27,6 +27,10 @@ export class PolkadotNetwork implements NetworkBackend {
   }
 
   getTransaction(hash: string): Promise<TxData | null> {
+    throw new Error('unimplemented');
+  }
+
+  disassembleRelayerTx(tx: string): RelayerTx {
     throw new Error('unimplemented');
   }
 }

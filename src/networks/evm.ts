@@ -1,7 +1,7 @@
 import Web3 from 'web3';
 import { AbiItem } from 'web3-utils';
 import { Contract } from 'web3-eth-contract'
-import { NetworkBackend, TxData } from './network';
+import { NetworkBackend, RelayerTx, TxData } from './network';
 import { ShieldedTx, TxType } from '../tx';
 import { toCanonicalSignature, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
@@ -132,6 +132,20 @@ export class EvmNetwork implements NetworkBackend {
       depositAddress,
       withdrawAddress,
       tokenAmount: tx.tokenAmount,
+    }
+  }
+
+  disassembleRelayerTx(tx: string): RelayerTx {
+    const mined = tx.slice(0, 1) == '1';
+    const hash = '0x' + tx.slice(1, 65);
+    const commitment = tx.slice(65, 129);
+    const memo = tx.slice(129);
+
+    return {
+      mined,
+      hash,
+      commitment,
+      memo,
     }
   }
 }
