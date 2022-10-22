@@ -33,4 +33,8 @@ export class PolkadotNetwork implements NetworkBackend {
   disassembleRelayerTx(tx: string): RelayerTx {
     throw new Error('unimplemented');
   }
+
+  addressToBuffer(address: string): Uint8Array {
+    throw new Error('unimplemented');
+  }
 }

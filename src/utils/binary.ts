@@ -178,6 +178,12 @@ export class BinaryReader {
   }
 
   @handlingRangeError
+  readI256(): BN {
+    const buf = this.readBuffer(32);
+    return new BN(buf, 'le').fromTwos(256);
+  }
+
+  @handlingRangeError
   readU512(): BN {
     const buf = this.readBuffer(64);
     return new BN(buf, 'le');

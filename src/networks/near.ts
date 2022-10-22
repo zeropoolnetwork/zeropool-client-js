@@ -2,7 +2,7 @@ import BN from 'bn.js';
 
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
-import { bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
+import { BinaryWriter, bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
 import { BinaryReader } from '../utils';
 
@@ -57,19 +57,15 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async getTransaction(hash: string): Promise<TxData | null> {
-    let tx;
+    let tx: IndexerTx;
     try {
       tx = await this.fetchBlockchainTx(hash);
     } catch (e) {
-      console.debug('Failed to fetch tx', hash, e);
+      console.debug(e);
       return null;
     }
 
-    if (!tx.args || !tx.args.args_base64) {
-      throw new Error(`Unable to parse calldata from tx ${hash}`);
-    }
-
-    const calldata = deserializePoolData(Buffer.from(tx.args.args_base64, 'base64'));
+    const calldata = deserializePoolData(Buffer.from(tx.calldata, 'base64'));
     let txType
     switch (calldata.txType) {
       case 0: txType = TxType.Deposit; break;
@@ -86,7 +82,7 @@ export class NearNetwork implements NetworkBackend {
     }
 
     return {
-      timestamp: Number(tx.block_timestamp),
+      timestamp: Number(tx.timestamp),
       txType,
       fee,
       depositAddress: calldata.depositAddress,
@@ -95,19 +91,33 @@ export class NearNetwork implements NetworkBackend {
     };
   }
 
-  async fetchBlockchainTx(hash: string): Promise<NearTxData> {
+  async fetchBlockchainTx(hash: string): Promise<IndexerTx> {
     const url = new URL(`/blockchain/tx/${hash}`, this.relayerUrl);
     const headers = { 'content-type': 'application/json;charset=UTF-8' };
     const res = await this.throttle.add(() => fetch(url.toString(), { headers }));
+    if (!res.ok) {
+      throw new Error(`Failed to fetch tx ${hash}: ${res.statusText}`);
+    }
+
     return await res.json();
+  }
+
+  addressToBuffer(address: string): Uint8Array {
+    const writer = new BinaryWriter();
+    writer.writeString(address);
+    return writer.toArray();
   }
 }
 
-type NearTxData = {
-  block_timestamp: number,
-  args: {
-    args_base64: string,
-  }
+type IndexerTx = {
+  hash: string,
+  block_hash: string,
+  block_height: number,
+  timestamp: number,
+  sender_address: string,
+  receiver_address: string,
+  signature: string,
+  calldata: string,
 }
 
 // TODO: Try using borsh-ts
@@ -139,9 +149,9 @@ function deserializePoolData(data: Buffer): PoolCalldata {
     nullifier: reader.readU256(),
     outCommit: reader.readU256(),
     transferIndex: reader.readU256(),
-    energyAmount: reader.readU256(),
+    energyAmount: reader.readI256(),
     tokenId: reader.readString(),
-    tokenAmount: reader.readU256(),
+    tokenAmount: reader.readI256(),
     delta: reader.readU256(),
     transactProof: reader.readFixedArray(8, () => reader.readU256()),
     rootAfter: reader.readU256(),

@@ -723,9 +723,7 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
-    const txType = TxType.Withdraw;
-    const addressBin = ethAddrToBuf(address);
-
+    const addressBin = this.config.network.addressToBuffer(address);
     const txData = state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,

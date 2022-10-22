@@ -23,5 +23,6 @@ export interface NetworkBackend {
   defaultNetworkName(): string;
   getRpcUrl(): string;
   getTransaction(hash: string): Promise<TxData | null>;
-  disassembleRelayerTx(tx: string): RelayerTx
+  disassembleRelayerTx(tx: string): RelayerTx;
+  addressToBuffer(address: string): Uint8Array;
 }

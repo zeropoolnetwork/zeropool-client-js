@@ -3,7 +3,7 @@ import { AbiItem } from 'web3-utils';
 import { Contract } from 'web3-eth-contract'
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { ShieldedTx, TxType } from '../tx';
-import { toCanonicalSignature, toCompactSignature, truncateHexPrefix } from '../utils';
+import { ethAddrToBuf, toCanonicalSignature, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
 
 const THROTTLE_RPS = 10;
@@ -147,5 +147,9 @@ export class EvmNetwork implements NetworkBackend {
       commitment,
       memo,
     }
+  }
+
+  addressToBuffer(address: string): Uint8Array {
+    return ethAddrToBuf(address);
   }
 }
