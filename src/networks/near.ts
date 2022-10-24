@@ -43,10 +43,18 @@ export class NearNetwork implements NetworkBackend {
   }
 
   disassembleRelayerTx(tx: string): RelayerTx {
+    const HASH_OFFSET = 65;
+
+    // FIXME: Proper hash parsing/serialization.
+    const memoOffset = tx.search(/0\d000000/);
+    if (memoOffset == -1) {
+      throw new Error('Invalid tx');
+    }
+
     const mined = tx.slice(0, 1) == '1';
-    const commitment = tx.slice(1, 65);
-    const hash = tx.slice(65, 109); // hash = 44 chars
-    const memo = tx.slice(109);
+    const commitment = tx.slice(1, HASH_OFFSET);
+    const hash = tx.slice(HASH_OFFSET, memoOffset); // hash = 44 or 43 chars
+    const memo = tx.slice(memoOffset);
 
     return {
       mined,
