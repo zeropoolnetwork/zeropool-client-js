@@ -4,7 +4,7 @@ import { ZkBobState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
-import { HistoryRecord, HistoryTransactionType } from './history'
+import { HistoryRecord, HistoryRecordState, HistoryTransactionType } from './history'
 
 import { 
   validateAddress, Output, Proof, DecryptedMemo, ITransferData, IWithdrawData,
@@ -235,24 +235,24 @@ export class ZkBobClient {
   // There is no option to prevent state update here,
   // because we should always monitor optimistic state
   public async getOptimisticTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
-    const state = this.zpStates[tokenAddress];
 
     const confirmedBalance = await this.getTotalBalance(tokenAddress, updateState);
     const historyRecords = await this.getAllHistory(tokenAddress, updateState);
 
     let pendingDelta = BigInt(0);
     for (const oneRecord of historyRecords) {
-      if (oneRecord.pending) {
+      if (oneRecord.state == HistoryRecordState.Pending) {
         switch (oneRecord.type) {
           case HistoryTransactionType.Deposit:
           case HistoryTransactionType.TransferIn: {
             // we don't spend fee from the shielded balance in case of deposit or input transfer
-            pendingDelta += oneRecord.amount;
+            pendingDelta = oneRecord.actions.map(({ amount }) => amount).reduce((acc, cur) => acc + cur, pendingDelta);
             break;
           }
           case HistoryTransactionType.Withdrawal:
           case HistoryTransactionType.TransferOut: {
-            pendingDelta -= (oneRecord.amount + oneRecord.fee);
+            pendingDelta = oneRecord.actions.map(({ amount }) => amount).reduce((acc, cur) => acc - cur, pendingDelta);
+            pendingDelta -= oneRecord.fee;
             break;
           }
 
@@ -285,7 +285,6 @@ export class ZkBobClient {
 
   // Waiting while relayer process the jobs set
   public async waitJobsCompleted(tokenAddress: string, jobIds: string[]): Promise<{jobId: string, txHash: string}[]> {
-    const token = this.tokens[tokenAddress];
     let promises = jobIds.map(async (jobId) => {
       const txHashes: string[] = await this.waitJobCompleted(tokenAddress, jobId);
       return { jobId, txHash: txHashes[0] };
@@ -308,7 +307,9 @@ export class ZkBobClient {
       if (job === null) {
         throw new RelayerJobError(Number(jobId), 'not found');
       } else if (job.state === 'failed')  {
-        throw new RelayerJobError(Number(jobId), job.failedReason !== undefined ? job.failedReason : 'unknown reason');
+        const relayerReason = job.failedReason !== undefined ? job.failedReason : 'unknown reason';
+        state.history.setQueuedTransactionFailedByRelayer(jobId, relayerReason);
+        throw new RelayerJobError(Number(jobId), relayerReason);
       } else if (job.state === 'completed') {
         hashes = job.txHash;
         break;
@@ -340,6 +341,8 @@ export class ZkBobClient {
       if (job === null) {
         throw new RelayerJobError(Number(jobId), 'not found');
       } else if (job.state === 'failed') {
+        const relayerReason = job.failedReason !== undefined ? job.failedReason : 'unknown reason';
+        state.history.setQueuedTransactionFailedByRelayer(jobId, relayerReason);
         throw new RelayerJobError(Number(jobId), job.failedReason !== undefined ? job.failedReason : 'unknown reason');
       } else if (job.state === 'completed') {
         hashes = job.txHash;
@@ -493,15 +496,9 @@ export class ZkBobClient {
 
       // Temporary save transaction parts in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
-      outputs.forEach((oneOutput) => {
-        var record;
-        if (state.isOwnAddress(oneOutput.to)) {
-          record = HistoryRecord.transferLoopback(oneOutput.to, BigInt(oneOutput.amount), onePart.fee, ts, `${index}`, true);
-        } else {
-          record = HistoryRecord.transferOut(oneOutput.to, BigInt(oneOutput.amount), onePart.fee, ts, `${index}`, true);
-        }
-        state.history.keepQueuedTransactions([record], jobId);
-      });
+      const transfers = outputs.map((out) => { return {to: out.to, amount: BigInt(out.amount)} });
+      var record = HistoryRecord.transferOut(transfers, onePart.fee, ts, `${index}`, true);
+      state.history.keepQueuedTransactions([record], jobId);
 
       if (index < (txParts.length - 1)) {
         console.log(`Waiting while job ${jobId} queued by relayer`);
@@ -709,11 +706,14 @@ export class ZkBobClient {
     const feePerOut = feeGwei / BigInt(outGwei.length);
     let recs = outGwei.map(({to, amount}) => {
       const ts = Math.floor(Date.now() / 1000);
-      if (state.isOwnAddress(to)) {
+      return HistoryRecord.transferOut([{to, amount: BigInt(amount)}], feePerOut, ts, `0`, true);
+      /*if (state.isOwnAddress(to)) {
         return HistoryRecord.transferLoopback(to, BigInt(amount), feePerOut, ts, "0", true);
       } else {
-        return HistoryRecord.transferOut(to, BigInt(amount), feePerOut, ts, "0", true);
-      }
+        return HistoryRecord.transferOut([{to, amount: BigInt(amount)}], feePerOut, ts, `0`, true);
+        //return HistoryRecord.transferOut(to, BigInt(amount), feePerOut, ts, "0", true);
+      }*/
+
     });
     state.history.keepQueuedTransactions(recs, jobId);
 
@@ -784,7 +784,7 @@ export class ZkBobClient {
     return this.relayerFee;
   }
 
-  public async minTxAmount(tokenAddress: string): Promise<bigint> {
+  public async minTxAmount(): Promise<bigint> {
     return MIN_TX_AMOUNT;
   }
 
@@ -796,7 +796,6 @@ export class ZkBobClient {
       await this.updateState(tokenAddress);
     }
 
-    let result: bigint;
 
     const txFee = await this.atomicTxFee(tokenAddress);
     const accountBalance = BigInt(state.accountBalance());
@@ -1054,7 +1053,6 @@ export class ZkBobClient {
 
   // Wait while state becomes ready to make new transactions
   public async waitReadyToTransact(tokenAddress: string): Promise<boolean> {
-    const token = this.tokens[tokenAddress];
 
     const INTERVAL_MS = 1000;
     const MAX_ATTEMPTS = 300;
@@ -1295,7 +1293,6 @@ export class ZkBobClient {
 
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
 
     const startIndex = zpState.account.nextTreeIndex();
 
