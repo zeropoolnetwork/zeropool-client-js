@@ -1,4 +1,5 @@
 import BN from 'bn.js';
+import bs58 from 'bs58';
 
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
@@ -44,17 +45,14 @@ export class NearNetwork implements NetworkBackend {
 
   disassembleRelayerTx(tx: string): RelayerTx {
     const HASH_OFFSET = 65;
-
-    // FIXME: Proper hash parsing/serialization.
-    const memoOffset = tx.search(/0\d000000/);
-    if (memoOffset == -1) {
-      throw new Error('Invalid tx');
-    }
+    const MEMO_OFFSET = HASH_OFFSET + 64;
 
     const mined = tx.slice(0, 1) == '1';
     const commitment = tx.slice(1, HASH_OFFSET);
-    const hash = tx.slice(HASH_OFFSET, memoOffset); // hash = 44 or 43 chars
-    const memo = tx.slice(memoOffset);
+    const hashHex = tx.slice(HASH_OFFSET, MEMO_OFFSET); // hash = 44 or 43 chars
+    const memo = tx.slice(MEMO_OFFSET);
+
+    const hash = bs58.encode(Buffer.from(hashHex, 'hex'));
 
     return {
       mined,
