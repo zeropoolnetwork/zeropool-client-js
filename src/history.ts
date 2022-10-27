@@ -1,5 +1,5 @@
 import { openDB, IDBPDatabase } from 'idb';
-import { Account, Note } from 'libzeropool-rs-wasm-web';
+import type { Account, Note } from 'libzeropool-rs-wasm-web';
 import { zp } from './zp';
 import { TxType } from './tx';
 import { CONSTANTS } from './constants';

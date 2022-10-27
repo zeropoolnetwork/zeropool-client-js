@@ -1,4 +1,4 @@
-import { VK } from 'libzeropool-rs-wasm-web';
+import type { VK } from 'libzeropool-rs-wasm-web';
 
 export interface Config {
   snarkParams: SnarkConfigParams;

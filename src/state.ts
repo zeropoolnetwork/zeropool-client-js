@@ -1,5 +1,5 @@
 import { hash } from 'tweetnacl';
-import { UserAccount } from 'libzeropool-rs-wasm-web';
+import type { UserAccount } from 'libzeropool-rs-wasm-web';
 
 import { bufToHex } from './utils';
 import { HistoryStorage } from './history'

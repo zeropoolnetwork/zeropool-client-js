@@ -234,6 +234,12 @@ export class BinaryReader {
     }
     return result;
   }
+
+  @handlingRangeError
+  skip(len: number) {
+    this.offset += len;
+    const _ = this.buf[this.offset]; // Check if offset is in bounds
+  }
 }
 
 export function bigintToArrayLe(num: bigint): Uint8Array {

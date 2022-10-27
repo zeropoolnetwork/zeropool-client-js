@@ -1,7 +1,7 @@
-import { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
+import type { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
 
 import { SnarkParams, Tokens } from './config';
-import { ethAddrToBuf, toCompactSignature, toTwosComplementHex, truncateHexPrefix } from './utils';
+import { BinaryWriter, ethAddrToBuf, toCompactSignature, toTwosComplementHex, truncateHexPrefix } from './utils';
 import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -39,9 +39,6 @@ export interface TxToRelayer {
   txType: TxType;
   memo: string;
   proof: Proof;
-  depositSignature?: string;
-  depositId?: number;
-  fromAddress?: string;
 }
 
 export interface JobInfo {
@@ -381,7 +378,7 @@ export class ZeropoolClient {
         deadline: String(deadline),
         holder,
         outputs
-      });
+      }, this.config.network.transactionVersion());
 
       const startProofDate = Date.now();
       const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -448,7 +445,7 @@ export class ZeropoolClient {
         outputs: [{ to, amount: (onePart.amount / denominator).toString() }],
         fee: (onePart.fee / denominator).toString(),
       };
-      const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState);
+      const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState, this.config.network.transactionVersion());
 
       console.log(`Transaction created: delta_index = ${oneTxData.parsed_delta.index}, root = ${oneTxData.public.root}`);
 
@@ -539,7 +536,7 @@ export class ZeropoolClient {
         native_amount: '0',
         energy_amount: '0',
       };
-      const oneTxData = await state.account.createWithdrawalOptimistic(oneTx, optimisticState);
+      const oneTxData = await state.account.createWithdrawalOptimistic(oneTx, optimisticState, this.config.network.transactionVersion());
 
       const startProofDate = Date.now();
       const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
@@ -614,11 +611,25 @@ export class ZeropoolClient {
       return { to, amount: (amountBn / denominator).toString() };
     });
 
-    let txData = state.account.createDeposit({
+    const dataWriter = new BinaryWriter();
+    dataWriter.writeString(fromAddress);
+    if (depositId !== null) {
+      dataWriter.writeU64(depositId);
+    }
+
+    const data = Buffer.from(dataWriter.toArray()).toString('hex');
+
+    const optimisticState = await this.getNewState(tokenAddress)
+    let txData = await state.account.createDepositOptimistic({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
       outputs: outsGwei,
-    });
+      data,
+    }, async (data) => {
+      const signature = await this.config.network.signNullifier(sign, data);
+      console.log('signature', signature);
+      return signature;
+    }, optimisticState, this.config.network.transactionVersion());
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -630,12 +641,7 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    const depositSignature = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress)
-
-    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, depositSignature, fromAddress };
-    if (depositId !== null) {
-      tx.depositId = depositId;
-    }
+    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof };
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
@@ -675,7 +681,7 @@ export class ZeropoolClient {
       return { to, amount: (amountBn / denominator).toString() };
     });
 
-    const txData = state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
+    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() }, this.config.network.transactionVersion());
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -724,13 +730,13 @@ export class ZeropoolClient {
     await this.updateState(tokenAddress);
 
     const addressBin = this.config.network.addressToBuffer(address);
-    const txData = state.account.createWithdraw({
+    const txData = await state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
       native_amount: '0',
       energy_amount: '0'
-    });
+    }, this.config.network.transactionVersion());
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);

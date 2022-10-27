@@ -5,6 +5,7 @@ import { TxType } from '../tx';
 import { BinaryWriter, bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
 import PromiseThrottle from 'promise-throttle';
 import { BinaryReader } from '../utils';
+import { zp } from '../zp';
 
 const THROTTLE_RPS = 4;
 
@@ -20,10 +21,9 @@ export class NearNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _address: string): Promise<string> {
-    const dataToSign = '0x' + nullifier.toString(16).padStart(64, '0');
-    const signature = truncateHexPrefix(await signFn(dataToSign));
-    return toCompactSignature(signature);
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: Uint8Array): Promise<string> {
+    const dataToSign = Buffer.from(nullifier).toString('hex');
+    return await signFn(dataToSign);
   }
 
   async getChainId(): Promise<number> {
@@ -115,6 +115,10 @@ export class NearNetwork implements NetworkBackend {
     writer.writeString(address);
     return writer.toArray();
   }
+
+  transactionVersion(): number {
+    return 2;
+  }
 }
 
 type IndexerTx = {
@@ -136,18 +140,25 @@ class PoolCalldata {
 
   nullifier!: BN
   outCommit!: BN
-  transferIndex!: BN
-  energyAmount!: BN
   tokenId!: string
-  tokenAmount!: BN
   delta!: BN
   transactProof!: BN[]
   rootAfter!: BN
   treeProof!: BN[]
   txType!: number
   memo!: Uint8Array
-  depositAddress!: string
-  depositId!: number
+
+  get tokenAmount(): BN {
+    return new BN(zp.parseDelta(this.delta.toString()).v);
+  }
+
+  get depositAddress(): string {
+    const reader = new BinaryReader(Buffer.from(this.memo));
+    reader.skip(8);
+    const bufLen = reader.readU32();
+    reader.skip(bufLen);
+    return reader.readString();
+  }
 }
 
 function deserializePoolData(data: Buffer): PoolCalldata {
@@ -156,17 +167,12 @@ function deserializePoolData(data: Buffer): PoolCalldata {
   return new PoolCalldata({
     nullifier: reader.readU256(),
     outCommit: reader.readU256(),
-    transferIndex: reader.readU256(),
-    energyAmount: reader.readI256(),
     tokenId: reader.readString(),
-    tokenAmount: reader.readI256(),
     delta: reader.readU256(),
     transactProof: reader.readFixedArray(8, () => reader.readU256()),
     rootAfter: reader.readU256(),
     treeProof: reader.readFixedArray(8, () => reader.readU256()),
     txType: reader.readU8(),
     memo: reader.readDynamicBuffer(),
-    depositAddress: reader.readString(),
-    depositId: reader.readU64(),
   })
 }

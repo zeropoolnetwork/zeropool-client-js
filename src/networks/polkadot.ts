@@ -1,5 +1,5 @@
 import { NetworkBackend, RelayerTx, TxData } from './network';
-import { toCompactSignature, truncateHexPrefix } from '../utils';
+import { truncateHexPrefix } from '../utils';
 
 export class PolkadotNetwork implements NetworkBackend {
   async getChainId(): Promise<number> {
@@ -10,12 +10,9 @@ export class PolkadotNetwork implements NetworkBackend {
     return BigInt(1000);
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, address: string): Promise<string> {
-    const dataToSign = '0x' + nullifier.toString(16).padStart(64, '0');
-    const signature = truncateHexPrefix(await signFn(dataToSign));
-    const addr = truncateHexPrefix(address);
-
-    return addr + signature; // TODO: sign both address and nullifier? There is no ecrecover in polkadot.
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: Uint8Array): Promise<string> {
+    const dataToSign = '0x' + Buffer.from(nullifier).toString('hex');
+    return truncateHexPrefix(await signFn(dataToSign));
   }
 
   defaultNetworkName(): string {
@@ -36,5 +33,9 @@ export class PolkadotNetwork implements NetworkBackend {
 
   addressToBuffer(address: string): Uint8Array {
     throw new Error('unimplemented');
+  }
+
+  transactionVersion(): number {
+    return 1;
   }
 }
