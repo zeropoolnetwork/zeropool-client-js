@@ -22,8 +22,15 @@ export class NearNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: Uint8Array): Promise<string> {
-    const dataToSign = Buffer.from(nullifier).toString('hex');
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, fromAddress: string, depositId: number | null): Promise<string> {
+    const nullifierEncoded = new BN(nullifier).toBuffer('le', 32);
+    const dataWriter = new BinaryWriter();
+    dataWriter.writeFixedArray(nullifierEncoded);
+    dataWriter.writeString(fromAddress);
+    if (depositId !== null) {
+      dataWriter.writeU64(depositId);
+    }
+    const dataToSign = Buffer.from(dataWriter.toArray()).toString('hex');
     return await signFn(dataToSign);
   }
 
@@ -112,10 +119,6 @@ export class NearNetwork implements NetworkBackend {
     const writer = new BinaryWriter();
     writer.writeString(address);
     return writer.toArray();
-  }
-
-  transactionVersion(): number {
-    return 2;
   }
 }
 

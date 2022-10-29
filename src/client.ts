@@ -39,6 +39,7 @@ export interface TxToRelayer {
   txType: TxType;
   memo: string;
   proof: Proof;
+  extraData?: string,
 }
 
 export interface JobInfo {
@@ -372,13 +373,13 @@ export class ZeropoolClient {
     if (fromAddress) {
       const deadline: bigint = BigInt(Math.floor(Date.now() / 1000) + 900)
       const holder = ethAddrToBuf(fromAddress);
-      txData = await state.account.createDepositPermittable({
+      txData = state.account.createDepositPermittable({
         amount: ((amountWei + feeWei) / denominator).toString(),
         fee: (feeWei / denominator).toString(),
         deadline: String(deadline),
         holder,
         outputs
-      }, this.config.network.transactionVersion());
+      });
 
       const startProofDate = Date.now();
       const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -445,7 +446,7 @@ export class ZeropoolClient {
         outputs: [{ to, amount: (onePart.amount / denominator).toString() }],
         fee: (onePart.fee / denominator).toString(),
       };
-      const oneTxData = await state.account.createTransferOptimistic(oneTx, optimisticState, this.config.network.transactionVersion());
+      const oneTxData = state.account.createTransferOptimistic(oneTx, optimisticState);
 
       console.log(`Transaction created: delta_index = ${oneTxData.parsed_delta.index}, root = ${oneTxData.public.root}`);
 
@@ -536,7 +537,7 @@ export class ZeropoolClient {
         native_amount: '0',
         energy_amount: '0',
       };
-      const oneTxData = await state.account.createWithdrawalOptimistic(oneTx, optimisticState, this.config.network.transactionVersion());
+      const oneTxData = state.account.createWithdrawalOptimistic(oneTx, optimisticState);
 
       const startProofDate = Date.now();
       const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
@@ -611,25 +612,14 @@ export class ZeropoolClient {
       return { to, amount: (amountBn / denominator).toString() };
     });
 
-    const dataWriter = new BinaryWriter();
-    dataWriter.writeString(fromAddress);
-    if (depositId !== null) {
-      dataWriter.writeU64(depositId);
-    }
-
-    const data = Buffer.from(dataWriter.toArray()).toString('hex');
-
     const optimisticState = await this.getNewState(tokenAddress)
-    let txData = await state.account.createDepositOptimistic({
+    let txData = state.account.createDepositOptimistic({
       amount: (amountGwei + feeGwei).toString(),
       fee: feeGwei.toString(),
       outputs: outsGwei,
-      data,
-    }, async (data) => {
-      const signature = await this.config.network.signNullifier(sign, data);
-      console.log('signature', signature);
-      return signature;
-    }, optimisticState, this.config.network.transactionVersion());
+    }, optimisticState);
+
+    const extraData = await this.config.network.signNullifier(sign, txData.public.nullifier, fromAddress, depositId);
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -641,7 +631,7 @@ export class ZeropoolClient {
       throw new Error('invalid tx proof');
     }
 
-    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof };
+    let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, extraData };
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
@@ -681,7 +671,7 @@ export class ZeropoolClient {
       return { to, amount: (amountBn / denominator).toString() };
     });
 
-    const txData = await state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() }, this.config.network.transactionVersion());
+    const txData = state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -730,13 +720,13 @@ export class ZeropoolClient {
     await this.updateState(tokenAddress);
 
     const addressBin = this.config.network.addressToBuffer(address);
-    const txData = await state.account.createWithdraw({
+    const txData = state.account.createWithdraw({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
       native_amount: '0',
       energy_amount: '0'
-    }, this.config.network.transactionVersion());
+    });
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);

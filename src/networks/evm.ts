@@ -78,9 +78,12 @@ export class EvmNetwork implements NetworkBackend {
     return BigInt(await this.contract.methods.denominator().call());
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: Uint8Array): Promise<string> {
-    const dataToSign = '0x' + Buffer.from(nullifier).toString('hex');
-    const signature = truncateHexPrefix(await signFn(dataToSign));
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, _fromAddress: string, _depositId: number | null): Promise<string> {
+    if (nullifier.slice(0, 2) != '0x') {
+      nullifier = '0x' + nullifier;
+    }
+
+    const signature = truncateHexPrefix(await signFn(nullifier));
     return toCompactSignature(signature);
   }
 
@@ -151,9 +154,5 @@ export class EvmNetwork implements NetworkBackend {
 
   addressToBuffer(address: string): Uint8Array {
     return ethAddrToBuf(address);
-  }
-
-  transactionVersion(): number {
-    return 1;
   }
 }

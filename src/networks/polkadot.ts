@@ -10,9 +10,12 @@ export class PolkadotNetwork implements NetworkBackend {
     return BigInt(1000);
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: Uint8Array): Promise<string> {
-    const dataToSign = '0x' + Buffer.from(nullifier).toString('hex');
-    return truncateHexPrefix(await signFn(dataToSign));
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, _fromAddress: string, _depositId: number | null): Promise<string> {
+    if (nullifier.slice(0, 2) != '0x') {
+      nullifier = '0x' + nullifier;
+    }
+
+    return truncateHexPrefix(await signFn(nullifier));
   }
 
   defaultNetworkName(): string {
@@ -33,9 +36,5 @@ export class PolkadotNetwork implements NetworkBackend {
 
   addressToBuffer(address: string): Uint8Array {
     throw new Error('unimplemented');
-  }
-
-  transactionVersion(): number {
-    return 1;
   }
 }
