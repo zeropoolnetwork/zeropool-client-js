@@ -240,6 +240,21 @@ export class BinaryReader {
     this.offset += len;
     const _ = this.buf[this.offset]; // Check if offset is in bounds
   }
+
+  @handlingRangeError
+  readBufferUntilEnd(): Buffer | null {
+    const len = this.buf.length - this.offset;
+
+    if (len <= 0) {
+      return null;
+    }
+
+    return this.readBuffer(len);
+  }
+
+  isEmpty(): boolean {
+    return this.offset === this.buf.length;
+  }
 }
 
 export function bigintToArrayLe(num: bigint): Uint8Array {

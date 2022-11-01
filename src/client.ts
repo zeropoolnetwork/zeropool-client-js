@@ -671,7 +671,8 @@ export class ZeropoolClient {
       return { to, amount: (amountBn / denominator).toString() };
     });
 
-    const txData = state.account.createTransfer({ outputs: outGwei, fee: feeGwei.toString() });
+    const optimisticState = await this.getNewState(tokenAddress)
+    const txData = state.account.createTransferOptimistic({ outputs: outGwei, fee: feeGwei.toString() }, optimisticState);
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
@@ -719,14 +720,18 @@ export class ZeropoolClient {
 
     await this.updateState(tokenAddress);
 
+    const optimisticState = await this.getNewState(tokenAddress)
     const addressBin = this.config.network.addressToBuffer(address);
-    const txData = state.account.createWithdraw({
+    const txData = state.account.createWithdrawalOptimistic({
       amount: (amountGwei + feeGwei).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
       native_amount: '0',
       energy_amount: '0'
-    });
+    }, optimisticState);
+
+    let delta = zp.parseDelta(txData.public.delta);
+    console.log(delta);
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);

@@ -23,15 +23,24 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, fromAddress: string, depositId: number | null): Promise<string> {
-    const nullifierEncoded = new BN(nullifier).toBuffer('le', 32);
-    const dataWriter = new BinaryWriter();
-    dataWriter.writeFixedArray(nullifierEncoded);
-    dataWriter.writeString(fromAddress);
-    if (depositId !== null) {
-      dataWriter.writeU64(depositId);
+    if (depositId === null) {
+      throw new Error('depositId is null');
     }
+
+    const nullifierBn = new BN(nullifier);
+    const dataWriter = new BinaryWriter();
+    dataWriter.writeU256(nullifierBn);
+    dataWriter.writeString(fromAddress);
+    dataWriter.writeU64(depositId);
+
     const dataToSign = Buffer.from(dataWriter.toArray()).toString('hex');
-    return await signFn(dataToSign);
+    const signature = Buffer.from(truncateHexPrefix(await signFn(dataToSign)), 'hex');
+    const finalDataWriter = new BinaryWriter();
+    finalDataWriter.writeFixedArray(signature);
+    finalDataWriter.writeString(fromAddress);
+    finalDataWriter.writeU64(depositId);
+
+    return Buffer.from(finalDataWriter.toArray()).toString('hex');
   }
 
   async getChainId(): Promise<number> {
@@ -93,12 +102,16 @@ export class NearNetwork implements NetworkBackend {
     if (txType == TxType.Withdraw) {
       withdrawAddress = '0x' + memoHex.substr(32, 40);
     }
+    let depositAddress: string | null = null;
+    if (txType == TxType.Deposit) {
+      depositAddress = calldata.depositAddress;
+    }
 
     return {
       timestamp: Number(tx.timestamp),
       txType,
       fee,
-      depositAddress: calldata.depositAddress,
+      depositAddress,
       withdrawAddress,
       tokenAmount: BigInt(calldata.tokenAmount.toString()),
     };
@@ -148,16 +161,19 @@ class PoolCalldata {
   treeProof!: BN[]
   txType!: number
   memo!: Uint8Array
+  extraData?: Uint8Array
 
   get tokenAmount(): BN {
     return new BN(zp.parseDelta(this.delta.toString()).v);
   }
 
   get depositAddress(): string {
-    const reader = new BinaryReader(Buffer.from(this.memo));
-    reader.skip(8);
-    const bufLen = reader.readU32();
-    reader.skip(bufLen);
+    if (!this.extraData) {
+      throw new Error('extraData is not set');
+    }
+
+    const reader = new BinaryReader(Buffer.from(this.extraData));
+    reader.skip(64); // skip signature
     return reader.readString();
   }
 }
@@ -165,15 +181,31 @@ class PoolCalldata {
 function deserializePoolData(data: Buffer): PoolCalldata {
   const reader = new BinaryReader(data)
 
+  const nullifier = reader.readU256()
+  const outCommit = reader.readU256()
+  const tokenId = reader.readString()
+  const delta = reader.readU256()
+  const transactProof = reader.readFixedArray(8, () => reader.readU256())
+  const rootAfter = reader.readU256()
+  const treeProof = reader.readFixedArray(8, () => reader.readU256())
+  const txType = reader.readU8()
+  const memo = reader.readDynamicBuffer()
+  const extraData = reader.readBufferUntilEnd()
+
+  if (!reader.isEmpty()) {
+    throw new Error('pool data is not fully consumed');
+  }
+
   return new PoolCalldata({
-    nullifier: reader.readU256(),
-    outCommit: reader.readU256(),
-    tokenId: reader.readString(),
-    delta: reader.readU256(),
-    transactProof: reader.readFixedArray(8, () => reader.readU256()),
-    rootAfter: reader.readU256(),
-    treeProof: reader.readFixedArray(8, () => reader.readU256()),
-    txType: reader.readU8(),
-    memo: reader.readDynamicBuffer(),
+    nullifier,
+    outCommit,
+    tokenId,
+    delta,
+    transactProof,
+    rootAfter,
+    treeProof,
+    txType,
+    memo,
+    extraData,
   })
 }
