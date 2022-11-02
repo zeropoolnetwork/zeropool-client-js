@@ -20,7 +20,15 @@ export namespace NetworkType {
     return `m/44'/${NetworkType.coinNumber(network)}'`;
   }
 
+  /**
+   * Use spendingKeyDerivationPath instead.
+   * @deprecated
+   */
   export function privateDerivationPath(network: NetworkType): string {
+    return `m/0'/0'`;
+  }
+
+  export function spendingKeyDerivationPath(network: NetworkType): string {
     return `m/${ZEROPOOL_PURPOSE}'/${NetworkType.coinNumber(network)}'`;
   }
 

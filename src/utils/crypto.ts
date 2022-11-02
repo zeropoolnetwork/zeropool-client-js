@@ -6,11 +6,18 @@ import { zp } from '../zp';
 import { bigintToArrayLe } from '../utils';
 import { Privkey } from 'hdwallet-babyjub';
 
+/**
+ * Use deriveSpendingKeyV2 instead. This one is for compatibility with existing wallets.
+ * @deprecated
+ */
 export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): Uint8Array {
   const path = NetworkType.privateDerivationPath(networkType);
-  const sk = bigintToArrayLe(Privkey(mnemonic, path).k);
+  return bigintToArrayLe(Privkey(mnemonic, path).k);
+}
 
-  return sk;
+export function deriveSpendingKeyV2(mnemonic: string, networkType: NetworkType): Uint8Array {
+  const path = NetworkType.spendingKeyDerivationPath(networkType);
+  return bigintToArrayLe(Privkey(mnemonic, path).k);
 }
 
 export function verifyShieldedAddress(address: string): boolean {

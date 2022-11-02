@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -21,7 +21,7 @@
     "comlink": "^4.3.1",
     "ethereum-block-by-date": "^1.4.5",
     "ethereumjs-util": "^7.1.5",
-    "hdwallet-babyjub": "^0.0.1",
+    "hdwallet-babyjub": "https://github.com/snjax/hdwallet-babyjub.git",
     "idb": "^7.0.0",
     "libzeropool-rs-wasm-web": "0.8.1",
     "libzeropool-rs-wasm-web-mt": "0.8.1",
