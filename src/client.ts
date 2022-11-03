@@ -180,34 +180,29 @@ export class ZeropoolClient {
     const history = await this.getAllHistory(tokenAddress, updateState);
     const pending = history.filter((h) => h.pending);
 
-    let pendingDeltaShielded = BigInt(0);
+    let pendingDeltaDenominated = BigInt(0);
 
     for (const h of pending) {
       switch (h.type) {
-        case HistoryTransactionType.Deposit:
-        case HistoryTransactionType.TransferIn: {
-          pendingDeltaShielded -= h.amount;
+        case HistoryTransactionType.Deposit: {
+          if (!this.config.network.approveChangesBalance) {
+            pendingDeltaDenominated -= h.amount;
+          }
+
           break;
         }
         case HistoryTransactionType.Withdrawal: {
           if (h.to.toLowerCase() === address.toLowerCase()) {
-            pendingDeltaShielded += h.amount;
+            pendingDeltaDenominated += h.amount;
           }
           break;
         }
-        case HistoryTransactionType.TransferOut: {
-          pendingDeltaShielded += h.amount;
-          break;
-        }
 
-        default: {
-          console.log('Unknown history tx type', h.type);
-          break;
-        }
+        default: break;
       }
     }
 
-    return pendingDeltaShielded * this.getDenominator(tokenAddress);
+    return pendingDeltaDenominated * this.getDenominator(tokenAddress);
   }
 
   // Get history records

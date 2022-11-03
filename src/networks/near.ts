@@ -11,6 +11,8 @@ import { zp } from '../zp';
 const THROTTLE_RPS = 4;
 
 export class NearNetwork implements NetworkBackend {
+  approveChangesBalance: boolean = true;
+
   private readonly relayerUrl: string;
   private readonly throttle: PromiseThrottle;
 

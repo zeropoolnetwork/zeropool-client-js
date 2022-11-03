@@ -17,6 +17,8 @@ export interface TxData {
 }
 
 export interface NetworkBackend {
+  approveChangesBalance: boolean;
+
   getChainId(): Promise<number>;
   getDenominator(contractAddress: string): Promise<bigint>;
   signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, fromAddress: string, depositId: number | null): Promise<string>;

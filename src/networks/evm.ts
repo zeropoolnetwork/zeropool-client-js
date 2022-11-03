@@ -9,6 +9,7 @@ import PromiseThrottle from 'promise-throttle';
 const THROTTLE_RPS = 10;
 
 export class EvmNetwork implements NetworkBackend {
+  approveChangesBalance: boolean = false;
   contract: Contract;
   token: Contract;
   rpcUrl: string;

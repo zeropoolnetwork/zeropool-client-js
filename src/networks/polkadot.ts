@@ -2,6 +2,8 @@ import { NetworkBackend, RelayerTx, TxData } from './network';
 import { truncateHexPrefix } from '../utils';
 
 export class PolkadotNetwork implements NetworkBackend {
+  approveChangesBalance: boolean = false;
+
   async getChainId(): Promise<number> {
     return 0;
   }
