@@ -322,7 +322,7 @@ export class HistoryStorage {
 
           if (!oneRec.record.pending) {
             // save history record only for mined transactions
-            this.put(oneRec.index, oneRec.record);
+            await this.put(oneRec.index, oneRec.record);
             newSyncIndex = oneRec.index;
           }
         }
@@ -333,12 +333,12 @@ export class HistoryStorage {
       }
 
       this.syncIndex = newSyncIndex;
-      this.db.put(HISTORY_STATE_TABLE, this.syncIndex, 'sync_index');
+      await this.db.put(HISTORY_STATE_TABLE, this.syncIndex, 'sync_index');
 
       const timeMs = Date.now() - startTime;
       console.log(`History has been synced up to index ${this.syncIndex} in ${timeMs} msec`);
     } else {
-      // No any records (new or pending)
+      // No records (new or pending)
       // delete all pending history records
       for (const [index, record] of this.currentHistory.entries()) {
         if (record.pending) {
@@ -356,8 +356,7 @@ export class HistoryStorage {
   }
 
   private async get(index: number): Promise<HistoryRecord | null> {
-    let data = await this.db.get(TX_TABLE, index);
-    return data;
+    return await this.db.get(TX_TABLE, index);
   }
 
   private async convertToHistory(memo: DecryptedMemo, pending: boolean): Promise<HistoryRecordIdx[]> {
@@ -368,12 +367,6 @@ export class HistoryStorage {
         // Decode transaction data
         let allRecords: HistoryRecordIdx[] = [];
         if (tx.txType == TxType.Deposit) {
-          let rec = HistoryRecord.deposit(tx.depositAddress!, tx.tokenAmount, tx.fee, tx.timestamp, txHash, pending);
-          allRecords.push(HistoryRecordIdx.create(rec, memo.index));
-
-          const outs = this.processOuts(memo, tx.fee, tx.timestamp, txHash, pending);
-          allRecords = allRecords.concat(outs);
-        } else if (tx.txType == TxType.BridgeDeposit) {
           let rec = HistoryRecord.deposit(tx.depositAddress!, tx.tokenAmount, tx.fee, tx.timestamp, txHash, pending);
           allRecords.push(HistoryRecordIdx.create(rec, memo.index));
 
@@ -400,8 +393,6 @@ export class HistoryStorage {
         }
       }
 
-      //throw new Error(`Unable to get transaction details (${txHash})`);
-      // TODO: make it more precisely
       return [];
 
     }

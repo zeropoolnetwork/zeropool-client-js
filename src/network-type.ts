@@ -21,7 +21,7 @@ export namespace NetworkType {
   }
 
   /**
-   * Use spendingKeyDerivationPath instead.
+   * For new projects, use spendingKeyDerivationPath instead.
    * @deprecated
    */
   export function privateDerivationPath(network: NetworkType): string {

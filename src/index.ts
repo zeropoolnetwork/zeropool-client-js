@@ -1,4 +1,4 @@
-export { ZeropoolClient, TxAmount, FeeAmount } from './client';
+export { ZeropoolClient, TxAmount } from './client';
 export { TxType } from './tx';
 export { HistoryRecord, HistoryTransactionType } from './history';
 export { EvmNetwork } from './networks/evm';
@@ -9,4 +9,4 @@ export * from './zp';
 export * as constants from './constants';
 export * from './config';
 export * as tx from './tx';
-export { deriveSpendingKey, verifyShieldedAddress } from './utils';
+export { deriveSpendingKey, deriveSpendingKeyV2, verifyShieldedAddress } from './utils';
