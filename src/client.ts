@@ -272,7 +272,7 @@ export class ZkBobClient {
       await this.updateState(tokenAddress);
     }
 
-    return await this.zpStates[tokenAddress].history.getAllHistory();
+    return await this.zpStates[tokenAddress].history.getAllHistory((addr) => this.isMyAddress(tokenAddress, addr));
   }
 
   // ------------------=========< Service Routines >=========-------------------
@@ -283,6 +283,12 @@ export class ZkBobClient {
   public async generateAddress(tokenAddress: string): Promise<string> {
     const state = this.zpStates[tokenAddress];
     return await state.generateAddress();
+  }
+
+  // Returns true if shieldedAddress belogs to the user's account
+  public async isMyAddress(tokenAddress: string, shieldedAddress: string): Promise<boolean> {
+    const state = this.zpStates[tokenAddress];
+    return await state.isOwnAddress(shieldedAddress);
   }
 
   // Waiting while relayer process the jobs set
@@ -505,7 +511,7 @@ export class ZkBobClient {
 
       // Temporary save transaction in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
-      const rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, '0', true);
+      const rec = await HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, '0', true);
       state.history.keepQueuedTransactions([rec], jobId);
 
       return jobId;
@@ -580,7 +586,7 @@ export class ZkBobClient {
       const ts = Math.floor(Date.now() / 1000);
 
       const transfers = outputs.map((out) => { return {to: out.to, amount: BigInt(out.amount)} });
-      var record = HistoryRecord.transferOut(transfers, onePart.fee, ts, '0', true);
+      const record = await HistoryRecord.transferOut(transfers, onePart.fee, ts, '0', true, (addr) => this.isMyAddress(tokenAddress, addr));
       state.history.keepQueuedTransactions([record], jobId);
 
       if (index < (txParts.length - 1)) {
@@ -662,7 +668,7 @@ export class ZkBobClient {
 
       // Temporary save transaction part in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
-      var record = HistoryRecord.withdraw(address, onePartAmount, onePart.fee, ts, '0', true);
+      const record = await HistoryRecord.withdraw(address, onePartAmount, onePart.fee, ts, '0', true);
       state.history.keepQueuedTransactions([record], jobId);
 
       if (index < (txParts.length - 1)) {
@@ -744,7 +750,7 @@ export class ZkBobClient {
     if (fromAddress) {
       // Temporary save transaction in the history module (to prevent history delays)
       const ts = Math.floor(Date.now() / 1000);
-      const rec = HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, '0', true);
+      const rec = await HistoryRecord.deposit(fromAddress, amountGwei, feeGwei, ts, '0', true);
       state.history.keepQueuedTransactions([rec], jobId);
     }
 
@@ -790,10 +796,10 @@ export class ZkBobClient {
 
     // Temporary save transactions in the history module (to prevent history delays)
     const feePerOut = feeGwei / BigInt(outGwei.length);
-    const recs = outGwei.map(({to, amount}) => {
+    const recs = await Promise.all(outGwei.map(({to, amount}) => {
       const ts = Math.floor(Date.now() / 1000);
-      return HistoryRecord.transferOut([{to, amount: BigInt(amount)}], feePerOut, ts, '0', true);
-    });
+      return HistoryRecord.transferOut([{to, amount: BigInt(amount)}], feePerOut, ts, '0', true, (addr) => this.isMyAddress(tokenAddress, addr));
+    }));
 
     state.history.keepQueuedTransactions(recs, jobId);
 
