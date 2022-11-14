@@ -6,6 +6,7 @@ import { InternalError } from './errors';
 
 const util = require('ethereumjs-util');
 
+// It's a healthy-man function
 export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): Uint8Array {
   const path = NetworkType.privateDerivationPath(networkType);
   const sk = bigintToArrayLe(Privkey(mnemonic, path).k);
@@ -13,10 +14,33 @@ export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): U
   return sk;
 }
 
+// And here is a smoker's variant of above implementation :D
+export function deriveSpendingKeyZkBob(mnemonic: string, networkType: NetworkType): Uint8Array {
+  if (networkType == NetworkType.polygon || networkType == NetworkType.sepolia) {
+    // There are few factors why we introduce this hack here:
+    //  1. zkBob prod deployment on Polygon was made with `ethereum` environment variable
+    //  2. `polygon` network type was not implemented in this library at the moment of zkBob prod deployment
+    //  3. staging deployment on Sepolia was also using `ethereum` network type
+    //  4. `hdwallet-babyjub` npm package had an error which lead to similar HD path for every network
+    //  5. we can't change HD path for existing prod users because their assets will become losed
+    return bigintToArrayLe(Privkey(mnemonic, "m/0'/0'").k);
+  }
+
+  return deriveSpendingKey(mnemonic, networkType);
+}
+
 const HEX_TABLE: string[] = [];
 for (let n = 0; n <= 0xff; ++n) {
   const octet = n.toString(16).padStart(2, '0');
   HEX_TABLE.push(octet);
+}
+
+export function concatenateBuffers(buf1: Uint8Array, buf2: Uint8Array): Uint8Array {
+  var res = new Uint8Array(buf1.byteLength + buf2.byteLength);
+  res.set(buf1, 0);
+  res.set(buf2, buf1.byteLength);
+
+  return res;
 }
 
 export function bufToHex(buffer: Uint8Array): string {

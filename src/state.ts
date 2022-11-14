@@ -2,10 +2,13 @@ import { IDepositData, IDepositPermittableData, ITransferData, IWithdrawData, St
 import { HistoryStorage } from './history'
 import { bufToHex } from './utils';
 import { hash } from 'tweetnacl';
+import { EphemeralPool } from './ephemeral';
+import { NetworkType } from './network-type';
 
 export class ZkBobState {
   public denominator: bigint;
   public history: HistoryStorage;
+  public ephemeralPool: EphemeralPool;
   public tokenAddress: string;
   public worker: any;
   
@@ -22,6 +25,9 @@ export class ZkBobState {
     zpState.tokenAddress = tokenAddress;
     zpState.worker = worker;
     zpState.history = await HistoryStorage.init(`zp.${networkName}.${userId}`, rpcUrl, worker);
+
+    let network = networkName as NetworkType;
+    zpState.ephemeralPool = await EphemeralPool.init(sk, tokenAddress, network, rpcUrl, denominator);
 
     return zpState;
   }

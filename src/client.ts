@@ -5,6 +5,7 @@ import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryRecordState, HistoryTransactionType } from './history'
+import { EphemeralAddress } from './ephemeral';
 
 import { 
   Output, Proof, DecryptedMemo, ITransferData, IWithdrawData,
@@ -450,7 +451,7 @@ export class ZkBobClient {
   // Deposit based on permittable token scheme. User should sign typed data to allow
   // contract receive his tokens
   // Returns jobId from the relayer or throw an Error
-  public async depositPermittableV2(
+  public async depositPermittable(
     tokenAddress: string,
     amountGwei: bigint,
     signTypedData: (deadline: bigint, value: bigint, salt: string) => Promise<string>,
@@ -519,6 +520,76 @@ export class ZkBobClient {
     } else {
       throw new TxInvalidArgumentError('You must provide fromAddress for deposit transaction');
     }
+  }
+
+  private async createPermittableDepositData(
+    tokenAddress: string,
+    version: string,
+    owner: string,
+    spender: string,
+    value: bigint,
+    deadline: bigint,
+    salt: string): Promise<object>
+  {
+    const tokenName = await this.config.network.getTokenName(tokenAddress);
+    const chainId = await this.config.network.getChainId();
+    const nonce = await this.config.network.getTokenNonce(tokenAddress, owner);
+
+    const domain = {
+        name: tokenName,
+        version: version,
+        chainId: chainId,
+        verifyingContract: tokenAddress,
+    };
+
+    const types = {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+        { name: 'verifyingContract', type: 'address' },
+      ],
+      Permit: [
+          { name: 'owner', type: 'address' },
+          { name: 'spender', type: 'address' },
+          { name: 'value', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
+          { name: 'salt', type: 'bytes32' }
+        ],
+    };
+
+    const message = { owner, spender, value: value.toString(), nonce, deadline: deadline.toString(), salt };
+
+    const data = { types, primaryType: 'Permit', domain, message };
+
+    return data;
+}
+
+  public async depositPermittableEphemeral(
+    tokenAddress: string,
+    amountGwei: bigint,
+    ephemeralIndex: number,
+    feeGwei: bigint = BigInt(0),
+  ): Promise<string> {
+    const state = this.zpStates[tokenAddress];
+    const fromAddress = await state.ephemeralPool.getEphemeralAddress(ephemeralIndex);
+
+    return this.depositPermittable(tokenAddress, amountGwei, async (deadline, value, salt) => {
+      const token = this.tokens[tokenAddress];
+      const state = this.zpStates[tokenAddress];
+
+      // we should check token balance here since the library is fully responsible
+      // for ephemeral address in contrast to depositing from external user's address
+      const neededGwei = value / state.denominator;
+      if(fromAddress.tokenBalance < neededGwei) {
+        throw new TxInsufficientFundsError(neededGwei, fromAddress.tokenBalance);
+      }
+
+      let ephemeralAddress = await state.ephemeralPool.getAddress(ephemeralIndex);
+      const dataToSign = await this.createPermittableDepositData(tokenAddress, '1', ephemeralAddress, token.poolAddress, value, deadline, salt);
+      return await state.ephemeralPool.signTypedData(dataToSign, ephemeralIndex);
+    }, fromAddress.address, feeGwei);
   }
 
   // Transfer shielded funds to the shielded address
@@ -1604,5 +1675,38 @@ export class ZkBobClient {
     } 
 
     return responseBody;
+  }
+
+  // ----------------=========< Ephemeral Addresses Pool >=========-----------------
+  // | Getting internal native accounts (for multisig implementation)              |
+  // -------------------------------------------------------------------------------
+  public async getEphemeralAddress(tokenAddress: string, index: number): Promise<EphemeralAddress> {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getEphemeralAddress(index);
+  }
+
+  public async getNonusedEphemeralIndex(tokenAddress: string): Promise<number> {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getNonusedEphemeralIndex();
+  }
+
+  public async getUsedEphemeralAddresses(tokenAddress: string): Promise<EphemeralAddress[]> {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getUsedEphemeralAddresses();
+  }
+
+  public async getEphemeralAddressInTxCount(tokenAddress: string, index: number): Promise<number> {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getEphemeralAddressInTxCount(index);
+  }
+
+  public async getEphemeralAddressOutTxCount(tokenAddress: string, index: number): Promise<number> {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getEphemeralAddressOutTxCount(index);
+  }
+
+  public getEphemeralAddressPrivateKey(tokenAddress: string, index: number): string {
+    const ephPool = this.zpStates[tokenAddress].ephemeralPool;
+    return ephPool.getEphemeralAddressPrivateKey(index);
   }
 }

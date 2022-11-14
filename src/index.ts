@@ -4,6 +4,7 @@ import { FileCache } from './file-cache';
 export { ZkBobClient, TransferConfig, FeeAmount, PoolLimits, TreeState } from './client';
 export { TxType } from './tx';
 export { HistoryRecord, HistoryTransactionType, HistoryRecordState } from './history'
+export { EphemeralAddress, EphemeralPool } from './ephemeral'
 export * from './errors'
 
 
