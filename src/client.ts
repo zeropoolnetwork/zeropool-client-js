@@ -24,16 +24,13 @@ const BATCH_SIZE = 1000;
 const PERMIT_DEADLINE_INTERVAL = 1200;   // permit deadline is current time + 20 min
 const PERMIT_DEADLINE_THRESHOLD = 300;   // minimum time to deadline before tx proof calculation and sending (5 min)
 
+const MIN_TX_COUNT_FOR_STAT = 10;
+
 export interface RelayerInfo {
   root: string;
   optimisticRoot: string;
   deltaIndex: bigint;
   optimisticDeltaIndex: bigint;
-}
-
-export interface TreeState {
-  root: bigint;
-  index: bigint;
 }
 
 const isRelayerInfo = (obj: any): obj is RelayerInfo => {
@@ -42,6 +39,11 @@ const isRelayerInfo = (obj: any): obj is RelayerInfo => {
     obj.hasOwnProperty('optimisticRoot') && typeof obj.optimisticRoot === 'string' &&
     obj.hasOwnProperty('deltaIndex') && typeof obj.deltaIndex === 'number' &&
     obj.hasOwnProperty('optimisticDeltaIndex') && typeof obj.optimisticDeltaIndex === 'number';
+}
+
+export interface TreeState {
+  root: bigint;
+  index: bigint;
 }
 
 export interface BatchResult {
@@ -140,6 +142,19 @@ export interface LimitsFetch {
   tier: number;
 }
 
+// Used to collect state synchronization statistic
+// It could be helpful to monitor average sync time
+export interface SyncStat {
+  txCount: number;  // total txs count (relayer + CDN)
+  cdnTxCnt: number; // number of transactions fetched in binary format from CDN (cold storage)
+  decryptedLeafs: number; // deposit/withdrawal = 1 leaf,
+                          // transfer = 1 + notes_cnt leafs
+  fullSync: boolean;  // true in case of bulding full Merkle tree on the client
+
+  totalTime: number; // msec
+  timePerTx: number;  // msec
+}
+
 export interface ClientConfig {
   /** Spending key. */
   sk: Uint8Array;
@@ -159,6 +174,7 @@ export class ZkBobClient {
   private config: ClientConfig;
   private relayerFee: bigint | undefined; // in Gwei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
+  private syncStats: SyncStat[] = [];
 
   // Jobs monitoring
   private monitoredJobs = new Map<string, JobInfo>();
@@ -1309,6 +1325,15 @@ export class ZkBobClient {
       
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
+      const curStat: SyncStat = {
+        txCount: (optimisticIndex - startIndex) / OUTPLUSONE,
+        cdnTxCnt: 0,
+        decryptedLeafs: 0,
+        fullSync: startIndex == 0 ? true : false,
+        totalTime: 0,
+        timePerTx: 0,
+      };
+
       
       const batches: Promise<BatchResult>[] = [];
 
@@ -1414,6 +1439,8 @@ export class ZkBobClient {
         const oneStateUpdate = totalRes.state.get(idx);
         if (oneStateUpdate !== undefined) {
           await state.updateState(oneStateUpdate);
+
+          curStat.decryptedLeafs += oneStateUpdate.newLeafs.length;
         } else {
           throw Error(`Cannot find state batch at index ${idx}`);
         }
@@ -1424,10 +1451,17 @@ export class ZkBobClient {
       zpState.history.setLastPendingTxIndex(totalRes.maxPendingIndex);
 
 
-      const msElapsed = Date.now() - startTime;
-      const avgSpeed = msElapsed / totalRes.txCount
+      curStat.txCount = totalRes.txCount;
+      curStat.totalTime = Date.now() - startTime;
+      curStat.timePerTx = curStat.totalTime / curStat.txCount;
 
-      console.log(`Sync finished in ${msElapsed / 1000} sec | ${totalRes.txCount} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
+      // save relevant stats only
+      if (curStat.txCount >= MIN_TX_COUNT_FOR_STAT) {
+        this.syncStats.push(curStat);
+      }
+
+
+      console.log(`Sync finished in ${curStat.totalTime / 1000} sec | ${totalRes.txCount} tx, avg speed ${curStat.timePerTx.toFixed(1)} ms/tx`);
 
       return readyToTransact;
     } else {
@@ -1707,4 +1741,27 @@ export class ZkBobClient {
     const ephPool = this.zpStates[tokenAddress].ephemeralPool;
     return ephPool.getEphemeralAddressPrivateKey(index);
   }
+
+  // ----------------=========< Statistic Routines >=========-----------------
+  // | Calculating sync time                                                 |
+  // -------------------------------------------------------------------------
+  public getStatFullSync(): SyncStat | undefined {
+    for (const aStat of this.syncStats) {
+      if (aStat.fullSync) {
+        return aStat;
+      }
+    }
+
+    return undefined; // relevant stat doesn't found
+  }
+
+  // milliseconds
+  public getAverageTimePerTx(): number | undefined {
+    if (this.syncStats.length > 0) {
+      return this.syncStats.map((aStat) => aStat.timePerTx).reduce((acc, cur) => acc + cur) / this.syncStats.length;
+    }
+
+    return undefined; // relevant stat doesn't found
+  }
+  
 }
