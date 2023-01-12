@@ -1,6 +1,8 @@
 import { numberToHex, padLeft } from 'web3-utils';
 import { toTwosComplementHex } from './crypto';
 
+// TODO: Most of those function are unnecessary
+
 const HEX_TABLE: string[] = [];
 for (let n = 0; n <= 0xff; ++n) {
   const octet = n.toString(16).padStart(2, '0');
@@ -69,6 +71,7 @@ export function hexToBuf(hex: string, bytesCnt: number = 0): Uint8Array {
   return buffer;
 }
 
+// TODO: Remove HexStringWriter and HexStringReader in favor of BinaryWriter and BinaryReader
 
 export class HexStringWriter {
   buf: string;
