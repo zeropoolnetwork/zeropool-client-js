@@ -1,10 +1,11 @@
 import BN from 'bn.js';
 import bs58 from 'bs58';
+import { address } from '@waves/ts-lib-crypto';
+import PromiseThrottle from 'promise-throttle';
 
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
 import { BinaryWriter, bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
-import PromiseThrottle from 'promise-throttle';
 import { BinaryReader } from '../utils';
 import { zp } from '../zp';
 
@@ -184,7 +185,7 @@ class PoolCalldata {
     }
 
     const pk = Buffer.from(this.extraData);
-    return addressFromPublicKey(pk);
+    return address({ publicKey: pk });
   }
 }
 

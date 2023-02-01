@@ -1,6 +1,6 @@
 {
   "name": "zeropool-client-js",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "ZeroPool integration library",
   "repository": "git@github.com:zeropoolnetwork/zeropool-client-js.git",
   "author": "Dmitry Vdovin <voidxnull@gmail.com>",
@@ -17,6 +17,7 @@
     "clean": "rm -rf lib/"
   },
   "dependencies": {
+    "@waves/ts-lib-crypto": "^1.4.4-beta.1",
     "borsh": "^0.7.0",
     "comlink": "^4.3.1",
     "ethereum-block-by-date": "^1.4.5",
