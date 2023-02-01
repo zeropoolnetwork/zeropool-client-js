@@ -10,7 +10,7 @@ const THROTTLE_RPS = 10;
 
 export class EvmNetwork implements NetworkBackend {
   approveChangesBalance: boolean = false;
-  contract: Contract;
+  pool: Contract;
   token: Contract;
   rpcUrl: string;
   web3: Web3;
@@ -18,7 +18,6 @@ export class EvmNetwork implements NetworkBackend {
 
   constructor(rpcUrl: string, requestsPerSecond: number = THROTTLE_RPS) {
     this.rpcUrl = rpcUrl;
-
     this.web3 = new Web3(rpcUrl);
 
     const abi: AbiItem[] = [
@@ -36,7 +35,7 @@ export class EvmNetwork implements NetworkBackend {
         type: 'function',
       },
     ];
-    this.contract = new this.web3.eth.Contract(abi) as Contract;
+    this.pool = new this.web3.eth.Contract(abi) as Contract;
 
     // just the Transfer() event definition is sufficient in this case
     const abiTokenJson: AbiItem[] = [
@@ -64,6 +63,7 @@ export class EvmNetwork implements NetworkBackend {
       }
     ];
     this.token = new this.web3.eth.Contract(abiTokenJson) as Contract;
+
     this.throttle = new PromiseThrottle({
       requestsPerSecond,
       promiseImplementation: Promise,
@@ -75,8 +75,8 @@ export class EvmNetwork implements NetworkBackend {
   }
 
   public async getDenominator(contractAddress: string): Promise<bigint> {
-    this.contract.options.address = contractAddress;
-    return BigInt(await this.contract.methods.denominator().call());
+    this.pool.options.address = contractAddress;
+    return BigInt(await this.pool.methods.denominator().call());
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, _fromAddress: string, _depositId: number | null): Promise<string> {
