@@ -21,6 +21,7 @@ export enum TxType {
   Deposit = '0000',
   Transfer = '0001',
   Withdraw = '0002',
+  DelegatedDeposit = '0004',
 }
 
 export function txTypeToString(txType: TxType): string {
@@ -28,6 +29,7 @@ export function txTypeToString(txType: TxType): string {
     case TxType.Deposit: return 'deposit';
     case TxType.Transfer: return 'transfer';
     case TxType.Withdraw: return 'withdraw';
+    case TxType.DelegatedDeposit: return 'delegated deposit';
   }
 }
 
@@ -44,7 +46,7 @@ export class ShieldedTx {
   public treeProof: bigint[];
   public txType: TxType;
   public memo: string;
-  public extra: string;
+  public extra: string | null;
 
   static async fromData(
     txData: TransactionData,
@@ -145,7 +147,7 @@ export class ShieldedTx {
     writer.writeNumber(this.memo.length / 2, 2);
     writer.writeHex(this.memo);
 
-    if (this.extra.length > 0) {
+    if (this.extra && this.extra.length > 0) {
       writer.writeHex(this.extra);
     }
 
@@ -182,8 +184,7 @@ export class ShieldedTx {
     // Extra data
     // It contains deposit holder signature for deposit transactions
     // or any other data which user can append
-    tx.extra = reader.readHexToTheEnd()!;
-    assertNotNull(tx.extra);
+    tx.extra = reader.readHexToTheEnd();
 
     return tx;
   }
