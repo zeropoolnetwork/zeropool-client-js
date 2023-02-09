@@ -80,11 +80,8 @@ export class EvmNetwork implements NetworkBackend {
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, _fromAddress: string, _depositId: number | null): Promise<string> {
-    if (nullifier.slice(0, 2) != '0x') {
-      nullifier = '0x' + nullifier;
-    }
-
-    const signature = truncateHexPrefix(await signFn(nullifier));
+    const nullifierHex = '0x' + BigInt(nullifier).toString(16).padStart(64, '0');
+    const signature = truncateHexPrefix(await signFn(nullifierHex));
     return toCompactSignature(signature);
   }
 
