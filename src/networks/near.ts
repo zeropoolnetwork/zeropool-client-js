@@ -24,12 +24,12 @@ export class NearNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, fromAddress: string, depositId: number | null): Promise<string> {
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, fromAddress: string, depositId: number | null): Promise<string> {
     if (depositId === null) {
       throw new Error('depositId is null');
     }
 
-    const nullifierBn = new BN(nullifier);
+    const nullifierBn = new BN(nullifier.toString());
     const dataWriter = new BinaryWriter();
     dataWriter.writeU256(nullifierBn);
     dataWriter.writeString(fromAddress);

@@ -21,7 +21,7 @@ export interface NetworkBackend {
 
   getChainId(): Promise<number>;
   getDenominator(contractAddress: string): Promise<bigint>;
-  signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, fromAddress: string, depositId: number | null): Promise<string>;
+  signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, fromAddress: string, depositId: number | null): Promise<string>;
   defaultNetworkName(): string;
   getRpcUrl(): string;
   getTransaction(hash: string): Promise<TxData | null>;

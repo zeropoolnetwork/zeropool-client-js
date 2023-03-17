@@ -1,5 +1,5 @@
 import Web3 from 'web3';
-import { AbiItem } from 'web3-utils';
+import { AbiItem, numberToHex, padLeft, toBN } from 'web3-utils';
 import { Contract } from 'web3-eth-contract'
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { ShieldedTx, TxType } from '../tx';
@@ -79,12 +79,9 @@ export class EvmNetwork implements NetworkBackend {
     return BigInt(await this.pool.methods.denominator().call());
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: string, _fromAddress: string, _depositId: number | null): Promise<string> {
-    if (nullifier.slice(0, 2) != '0x') {
-      nullifier = '0x' + nullifier;
-    }
-
-    const signature = truncateHexPrefix(await signFn(nullifier));
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _fromAddress: string, _depositId: number | null): Promise<string> {
+    const data = '0x' + padLeft(numberToHex(nullifier.toString()).slice(2), 64);
+    const signature = truncateHexPrefix(await signFn(data));
     return toCompactSignature(signature);
   }
 

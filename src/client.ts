@@ -504,7 +504,7 @@ export class ZeropoolClient {
       outputs: outsGwei,
     }, optimisticState);
 
-    const extraData = await this.config.network.signNullifier(sign, txData.public.nullifier, fromAddress, depositId);
+    const extraData = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress, depositId);
 
     const startProofDate = Date.now();
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
