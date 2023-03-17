@@ -13,6 +13,7 @@ const obj = {
   async initWasm(paramUrls: { txParams: string; treeParams: string }, wasmPath?: string) {
     console.info('Initializing web worker...');
     await init(wasmPath || WASM_PATH);
+    console.info('Initializing thread pool...')
     await initThreadPool(navigator.hardwareConcurrency);
 
     const cache = await FileCache.init();
@@ -42,28 +43,25 @@ const obj = {
   },
 
   async proveTx(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTx');
-      const result = Proof.tx(txParams, pub, sec);
-      resolve(result);
-    });
+    console.log('Web worker: proveTx');
+    const res = Proof.tx(txParams, pub, sec);
+    console.log('Web worker: proveTx done');
+    return res;
   },
 
   async proveTree(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTree');
-      const result = Proof.tree(treeParams, pub, sec);
-      resolve(result);
-    });
+    console.log('Web worker: proveTree');
+    const res = Proof.tree(treeParams, pub, sec);
+    console.log('Web worker: proveTree done');
+    return res;
   },
 
   async parseTxs(sk: Uint8Array, txs: IndexedTx[]): Promise<ParseTxsResult> {
-    return new Promise(async resolve => {
-      console.debug('Web worker: parseTxs');
-      const result = txParser.parseTxs(sk, txs)
-      sk.fill(0)
-      resolve(result);
-    });
+    console.log('Web worker: parseTxs');
+    const result = txParser.parseTxs(sk, txs);
+    console.log('Web worker: parseTxs done');
+    sk.fill(0);
+    return result;
   },
 };
 

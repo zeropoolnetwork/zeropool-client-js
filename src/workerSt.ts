@@ -41,28 +41,17 @@ const obj = {
   },
 
   async proveTx(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTx');
-      const result = Proof.tx(txParams, pub, sec);
-      resolve(result);
-    });
+    return Proof.tx(txParams, pub, sec);
   },
 
   async proveTree(pub, sec) {
-    return new Promise(async resolve => {
-      console.debug('Web worker: proveTree');
-      const result = Proof.tree(treeParams, pub, sec);
-      resolve(result);
-    });
+    return Proof.tree(treeParams, pub, sec);
   },
 
   async parseTxs(sk: Uint8Array, txs: IndexedTx[]): Promise<ParseTxsResult> {
-    return new Promise(async resolve => {
-      console.debug('Web worker: parseTxs');
-      const result = txParser.parseTxs(sk, txs)
-      sk.fill(0)
-      resolve(result);
-    });
+    const result = txParser.parseTxs(sk, txs)
+    sk.fill(0);
+    return result;
   },
 };
 

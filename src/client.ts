@@ -507,6 +507,7 @@ export class ZeropoolClient {
     const extraData = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress, depositId);
 
     const startProofDate = Date.now();
+    console.log('Starting proof calculation...');
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
