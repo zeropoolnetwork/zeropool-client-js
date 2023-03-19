@@ -30,9 +30,7 @@ import { init, ZeropoolClient, EvmNetwork } from 'zeropool-client-js';
 // Use https://github.com/zeropoolnetwork/libzeropool CLI to generate theese files
 const snarkParams = {
   transferParamsUrl: '/path/to/transfer/params',
-  treeParamsUrl: '/path/to/tree/params',
   transferVkUrl: '/path/to/transfer/vk',
-  treeVkUrl: '/path/to/tree/vk',
 };
 
 // Initialize the library.
