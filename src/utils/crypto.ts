@@ -1,4 +1,3 @@
-import { padLeft } from 'web3-utils';
 import util from 'ethereumjs-util';
 import { addHexPrefix, bufToHex, hexToBuf, truncateHexPrefix } from './hex';
 import { NetworkType } from '../network-type';
@@ -7,6 +6,9 @@ import { bigintToArrayLe } from '../utils';
 import { Privkey } from 'hdwallet-babyjub';
 
 
+/**
+ * @deprecated Use deriveSpendingKeyV2 instead
+ */
 export function deriveSpendingKey(mnemonic: string, networkType: NetworkType): Uint8Array {
   const path = NetworkType.privateDerivationPath(networkType);
   return bigintToArrayLe(Privkey(mnemonic, path).k);
@@ -23,18 +25,6 @@ export function verifyShieldedAddress(address: string): boolean {
 
 export function ethAddrToBuf(address: string): Uint8Array {
   return hexToBuf(address, 20);
-}
-
-export function toTwosComplementHex(num: bigint, numBytes: number): string {
-  let hex;
-  if (num < 0) {
-    let val = BigInt(2) ** BigInt(numBytes * 8) + num;
-    hex = val.toString(16);
-  } else {
-    hex = num.toString(16);
-  }
-
-  return padLeft(hex, numBytes * 2);
 }
 
 export function toCompactSignature(signature: string): string {
@@ -58,7 +48,7 @@ export function toCompactSignature(signature: string): string {
   return signature;
 }
 
-export function parseCompactSignature(signature: string): {v: string, r: string, s: string} {
+export function parseCompactSignature(signature: string): { v: string, r: string, s: string } {
   signature = truncateHexPrefix(signature);
 
   if (signature.length == 128) {
@@ -72,9 +62,9 @@ export function parseCompactSignature(signature: string): {v: string, r: string,
       s = `0x${(sHiDigit & 7).toString(16)}${s.slice(1)}`;
     }
 
-    return {v, r, s};
+    return { v, r, s };
 
-  }else {
+  } else {
     throw ("invalid signature length");
   }
 

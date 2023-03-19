@@ -6,11 +6,10 @@ import { FileCache } from './file-cache';
 const WASM_PATH = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
 
 let txParams: Params;
-let treeParams: Params;
 let txParser: TxParser;
 
 const obj = {
-  async initWasm(paramUrls: { txParams: string; treeParams: string }, wasmPath?: string) {
+  async initWasm(paramUrls: { txParams: string; }, wasmPath?: string) {
     console.info('Initializing web worker...');
     await init(wasmPath || WASM_PATH);
     console.info('Initializing thread pool...')
@@ -28,16 +27,6 @@ const obj = {
       txParams = Params.fromBinaryExtended(new Uint8Array(txParamsData!), false, false);
     }
 
-    let treeParamsData = await cache.get(paramUrls.treeParams);
-    if (!treeParamsData) {
-      console.log(`Caching ${paramUrls.treeParams}`)
-      treeParamsData = await cache.cache(paramUrls.treeParams);
-      treeParams = Params.fromBinary(new Uint8Array(treeParamsData!));
-    } else {
-      console.log(`File ${paramUrls.treeParams} is present in cache, no need to fetch`);
-      treeParams = Params.fromBinaryExtended(new Uint8Array(treeParamsData!), false, false);
-    }
-
     txParser = TxParser.new()
     console.info('Web worker init complete.');
   },
@@ -46,13 +35,6 @@ const obj = {
     console.log('Web worker: proveTx');
     const res = Proof.tx(txParams, pub, sec);
     console.log('Web worker: proveTx done');
-    return res;
-  },
-
-  async proveTree(pub, sec) {
-    console.log('Web worker: proveTree');
-    const res = Proof.tree(treeParams, pub, sec);
-    console.log('Web worker: proveTree done');
     return res;
   },
 

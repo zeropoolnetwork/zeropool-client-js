@@ -8,18 +8,13 @@ export interface Config {
 
 export interface SnarkConfigParams {
   transferParamsUrl: string;
-  treeParamsUrl: string;
   transferVkUrl: string;
-  treeVkUrl: string;
 }
 
 export interface SnarkParams {
   transferVk?: VK;
-  treeVk?: VK;
 }
 
-/*
- */
 export type Tokens = {
   [address: string]: Token;
 };

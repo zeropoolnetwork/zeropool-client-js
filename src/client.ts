@@ -1,7 +1,7 @@
 import type { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
+import BN from 'bn.js';
 
 import { SnarkParams, Tokens } from './config';
-import { ethAddrToBuf } from './utils';
 import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -9,8 +9,8 @@ import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history';
 import { zp } from './zp';
 
-const MIN_TX_AMOUNT = BigInt(10000000);
-const DEFAULT_TX_FEE = BigInt(0);
+const MIN_TX_AMOUNT = new BN(10000000);
+const DEFAULT_TX_FEE = new BN(0);
 const BATCH_SIZE = 100;
 
 export interface RelayerInfo {
@@ -29,9 +29,9 @@ export interface BatchResult {
 }
 
 export interface TxAmount { // all values are in Gwei
-  amount: bigint;  // tx amount (without fee)
-  fee: bigint;  // fee 
-  accountLimit: bigint;  // minimum account remainder after transaction
+  amount: BN;  // tx amount (without fee)
+  fee: BN;  // fee 
+  accountLimit: BN;  // minimum account remainder after transaction
   // (used for complex multi-tx transfers, default: 0)
 }
 
@@ -45,8 +45,8 @@ export interface TxToRelayer {
 export interface JobInfo {
   state: string;
   txHash: string[];
-  createdOn: BigInt;
-  finishedOn?: BigInt;
+  createdOn: BN;
+  finishedOn?: BN;
   failedReason?: string;
 }
 
@@ -70,7 +70,7 @@ export class ZeropoolClient {
   private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
-  private relayerFee: bigint | undefined; // in wei, do not use directly, use getRelayerFee method instead
+  private relayerFee: BN | undefined; // in wei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
 
   public static async create(config: ClientConfig): Promise<ZeropoolClient> {
@@ -90,7 +90,7 @@ export class ZeropoolClient {
 
     for (const [address, token] of Object.entries(config.tokens)) {
       const denominator = await config.network.getDenominator(token.poolAddress);
-      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network, BigInt(denominator));
+      client.zpStates[address] = await ZeroPoolState.create(config.sk, networkName, config.network, denominator);
     }
 
     return client;
@@ -109,23 +109,23 @@ export class ZeropoolClient {
   // Pool contract using default denominator 10^9
   // i.e. values less than 1 Gwei are supposed equals zero
   // But this is deployable parameter so this method are using to retrieve it
-  public getDenominator(tokenAddress: string): bigint {
+  public getDenominator(tokenAddress: string): BN {
     return this.zpStates[tokenAddress].denominator;
   }
 
   // Convert native pool amount to the base units
-  public shieldedAmountToWei(tokenAddress, amountShielded: bigint): bigint {
-    return amountShielded * this.zpStates[tokenAddress].denominator
+  public shieldedAmountToWei(tokenAddress, amountShielded: BN): BN {
+    return amountShielded.mul(this.zpStates[tokenAddress].denominator);
   }
 
   // Convert base units to the native pool amount
-  public weiToShieldedAmount(tokenAddress, amountWei: bigint): bigint {
-    return amountWei / this.zpStates[tokenAddress].denominator
+  public weiToShieldedAmount(tokenAddress, amountWei: BN): BN {
+    return amountWei.div(this.zpStates[tokenAddress].denominator)
   }
 
   // Get account + notes balance in wei
   // [with optional state update]
-  public async getTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
+  public async getTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<BN> {
     if (updateState) {
       await this.updateState(tokenAddress);
     }
@@ -136,7 +136,7 @@ export class ZeropoolClient {
   // Get total balance with components: account and notes
   // [with optional state update]
   // Returns [total, account, note] in wei
-  public async getBalances(tokenAddress: string, updateState: boolean = true): Promise<[bigint, bigint, bigint]> {
+  public async getBalances(tokenAddress: string, updateState: boolean = true): Promise<[BN, BN, BN]> {
     if (updateState) {
       await this.updateState(tokenAddress);
     }
@@ -147,24 +147,24 @@ export class ZeropoolClient {
   // Get total balance including transactions in optimistic state [in wei]
   // There is no option to prevent state update here,
   // because we should always monitor optimistic state
-  public async getOptimisticTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
+  public async getOptimisticTotalBalance(tokenAddress: string, updateState: boolean = true): Promise<BN> {
     const confirmedBalance = await this.getTotalBalance(tokenAddress, updateState);
     const historyRecords = await this.getAllHistory(tokenAddress, updateState);
     const denominator = this.getDenominator(tokenAddress);
 
-    let pendingDelta = BigInt(0);
+    let pendingDelta = new BN(0);
     for (const oneRecord of historyRecords) {
       if (oneRecord.pending) {
         switch (oneRecord.type) {
           case HistoryTransactionType.Deposit:
           case HistoryTransactionType.TransferIn: {
             // we don't spend fee from the shielded balance in case of deposit or input transfer
-            pendingDelta += oneRecord.amount * denominator;
+            pendingDelta.iadd(oneRecord.amount.mul(denominator));
             break;
           }
           case HistoryTransactionType.Withdrawal:
           case HistoryTransactionType.TransferOut: {
-            pendingDelta -= (oneRecord.amount + oneRecord.fee) * denominator;
+            pendingDelta.isub(oneRecord.amount.add(oneRecord.fee).mul(denominator));
             break;
           }
 
@@ -173,27 +173,27 @@ export class ZeropoolClient {
       }
     }
 
-    return confirmedBalance + pendingDelta;
+    return confirmedBalance.add(pendingDelta);
   }
 
-  public async getOptimisticTokenBalanceDelta(tokenAddress: string, address: string, updateState: boolean = true): Promise<bigint> {
+  public async getOptimisticTokenBalanceDelta(tokenAddress: string, address: string, updateState: boolean = true): Promise<BN> {
     const history = await this.getAllHistory(tokenAddress, updateState);
     const pending = history.filter((h) => h.pending);
 
-    let pendingDeltaDenominated = BigInt(0);
+    let pendingDeltaDenominated = new BN(0);
 
     for (const h of pending) {
       switch (h.type) {
         case HistoryTransactionType.Deposit: {
           if (!this.config.network.approveChangesBalance) {
-            pendingDeltaDenominated -= h.amount;
+            pendingDeltaDenominated.isub(h.amount);
           }
 
           break;
         }
         case HistoryTransactionType.Withdrawal: {
           if (h.to.toLowerCase() === address.toLowerCase()) {
-            pendingDeltaDenominated += h.amount;
+            pendingDeltaDenominated.iadd(h.amount);
           }
           break;
         }
@@ -202,7 +202,7 @@ export class ZeropoolClient {
       }
     }
 
-    return pendingDeltaDenominated * this.getDenominator(tokenAddress);
+    return pendingDeltaDenominated.mul(this.getDenominator(tokenAddress));
   }
 
   // Get history records
@@ -293,191 +293,27 @@ export class ZeropoolClient {
     return true;
   }
 
-  // ------------------=========< Making Transactions >=========-------------------
-  // | Methods for creating and sending transactions in different modes           |
-  // ------------------------------------------------------------------------------
-
-  // Transfer shielded funds to the shielded address
-  // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
-  // // Returns jobId from the relayer or throw an Error
-  public async transferMulti(tokenAddress: string, to: string, amountWei: bigint, feeWei: bigint = BigInt(0)): Promise<string[]> {
-    const state = this.zpStates[tokenAddress];
-    const token = this.tokens[tokenAddress];
-    const denominator = this.getDenominator(tokenAddress);
-
-    if (!zp.validateAddress(to)) {
-      throw new Error('Invalid address. Expected a shielded address.');
-    }
-
-    if (amountWei < MIN_TX_AMOUNT) {
-      throw new Error(`Transfer amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    const txParts = await this.getTransactionParts(tokenAddress, amountWei, feeWei);
-
-    if (txParts.length == 0) {
-      throw new Error('Cannot find appropriate multi-transfer configuration (insufficient funds?)');
-    }
-
-    const jobsIds: string[] = [];
-    let optimisticState: StateUpdate = {
-      newLeafs: [],
-      newCommitments: [],
-      newAccounts: [],
-      newNotes: [],
-    }
-    for (let index = 0; index < txParts.length; index++) {
-      const onePart = txParts[index];
-      const oneTx: ITransferData = {
-        outputs: [{ to, amount: (onePart.amount / denominator).toString() }],
-        fee: (onePart.fee / denominator).toString(),
-      };
-      const oneTxData = state.account.createTransferOptimistic(oneTx, optimisticState);
-
-      console.log(`Transaction created: delta_index = ${oneTxData.parsed_delta.index}, root = ${oneTxData.public.root}`);
-
-      const startProofDate = Date.now();
-      const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
-      const proofTime = (Date.now() - startProofDate) / 1000;
-      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-      if (!txValid) {
-        throw new Error('invalid tx proof');
-      }
-
-      const transaction = { memo: oneTxData.memo, proof: txProof, txType: TxType.Transfer };
-
-      const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
-      jobsIds.push(jobId);
-
-      // Temporary save transaction part in the history module (to prevent history delays)
-      const ts = Math.floor(Date.now() / 1000);
-      let record;
-      if (state.isOwnAddress(to)) {
-        record = HistoryRecord.transferLoopback(to, onePart.amount / denominator, onePart.fee / denominator, ts, `${index}`, true);
-      } else {
-        record = HistoryRecord.transferOut(to, onePart.amount / denominator, onePart.fee / denominator, ts, `${index}`, true);
-      }
-      state.history.keepQueuedTransactions([record], jobId);
-
-      if (index < (txParts.length - 1)) {
-        console.log(`Waiting while job ${jobId} queued by relayer`);
-        // if there are few additional tx, we should collect the optimistic state before processing them
-        await this.waitJobQueued(tokenAddress, jobId);
-
-        optimisticState = await this.getNewState(tokenAddress);
-      }
-    }
-
-    return jobsIds;
-  }
-
-  // Withdraw shielded funds to the specified native chain address
-  // This method can produce several transactions in case of insufficient input notes (constants::IN per tx)
-  // feeGwei - fee per single transaction (request it with atomicTxFee method)
-  // Returns jobId from the relayer or throw an Error
-  public async withdrawMulti(tokenAddress: string, address: string, amountWei: bigint, feeWei: bigint = BigInt(0)): Promise<string[]> {
-    const token = this.tokens[tokenAddress];
-    const state = this.zpStates[tokenAddress];
-    const denominator = this.getDenominator(tokenAddress);
-
-    if (amountWei < MIN_TX_AMOUNT) {
-      throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
-    }
-
-    const txParts = await this.getTransactionParts(tokenAddress, amountWei, feeWei);
-
-    if (txParts.length == 0) {
-      throw new Error('Cannot find appropriate multi-transfer configuration (insufficient funds?)');
-    }
-
-    const addressBin = ethAddrToBuf(address);
-
-    const transfers = txParts.map(({ amount, fee, accountLimit }) => {
-      const oneTransfer: IWithdrawData = {
-        amount: (amount / denominator).toString(),
-        fee: (fee / denominator).toString(),
-        to: addressBin,
-        native_amount: '0',
-        energy_amount: '0',
-      };
-
-      return oneTransfer;
-    });
-
-    ///////
-    const jobsIds: string[] = [];
-    let optimisticState: StateUpdate = {
-      newLeafs: [],
-      newCommitments: [],
-      newAccounts: [],
-      newNotes: [],
-    }
-    for (let index = 0; index < txParts.length; index++) {
-      const onePart = txParts[index];
-      const oneTx: IWithdrawData = {
-        amount: (onePart.amount / denominator).toString(),
-        fee: (onePart.fee / denominator).toString(),
-        to: addressBin,
-        native_amount: '0',
-        energy_amount: '0',
-      };
-      const oneTxData = state.account.createWithdrawalOptimistic(oneTx, optimisticState);
-
-      const startProofDate = Date.now();
-      const txProof: Proof = await this.worker.proveTx(oneTxData.public, oneTxData.secret);
-      const proofTime = (Date.now() - startProofDate) / 1000;
-      console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-      const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-      if (!txValid) {
-        throw new Error('invalid tx proof');
-      }
-
-      const transaction = { memo: oneTxData.memo, proof: txProof, txType: TxType.Withdraw };
-
-      const jobId = await this.sendTransactions(token.relayerUrl, [transaction]);
-      jobsIds.push(jobId);
-
-      // Temporary save transaction part in the history module (to prevent history delays)
-      const ts = Math.floor(Date.now() / 1000);
-      const record = HistoryRecord.withdraw(address, onePart.amount / denominator, onePart.fee / denominator, ts, `${index}`, true);
-      state.history.keepQueuedTransactions([record], jobId);
-
-      if (index < (txParts.length - 1)) {
-        console.log(`Waiting while job ${jobId} queued by relayer`);
-        // if there are few additional tx, we should collect the optimistic state before processing them
-        await this.waitJobQueued(tokenAddress, jobId);
-
-        optimisticState = await this.getNewState(tokenAddress);
-      }
-    }
-
-    return jobsIds;
-  }
-
   // Deposit through approval allowance
   // User should approve allowance for contract address at least 
   // (amountGwei + feeGwei) tokens before calling this method
   // Returns jobId
   public async deposit(
     tokenAddress: string,
-    amountWei: bigint,
+    amountWei: BN,
     sign: (data: string) => Promise<string>,
     fromAddress: string,
     // it should be null for EVM
-    feeWei: bigint = BigInt(0),
+    feeWei: BN = new BN(0),
     outsWei: Output[] = [],
     depositId: number | null = null,
   ): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const amountGwei = amountWei / denominator;
-    const feeGwei = feeWei / denominator;
+    const amountGwei = amountWei.div(denominator);
+    const feeGwei = feeWei.div(denominator);
 
-    if (amountWei < MIN_TX_AMOUNT) {
+    if (amountWei.lt(MIN_TX_AMOUNT)) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -488,23 +324,23 @@ export class ZeropoolClient {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
-      const amountBn = BigInt(amount);
+      const amountBn = new BN(amount);
 
-      if (amountBn < MIN_TX_AMOUNT) {
+      if (amountBn.lt(MIN_TX_AMOUNT)) {
         throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
       }
 
-      return { to, amount: (amountBn / denominator).toString() };
+      return { to, amount: (amountBn.div(denominator)).toString() };
     });
 
     const optimisticState = await this.getNewState(tokenAddress)
     let txData = state.account.createDepositOptimistic({
-      amount: (amountGwei + feeGwei).toString(),
+      amount: (amountGwei.add(feeGwei)).toString(),
       fee: feeGwei.toString(),
       outputs: outsGwei,
     }, optimisticState);
 
-    const extraData = await this.config.network.signNullifier(sign, BigInt(txData.public.nullifier), fromAddress, depositId);
+    const extraData = await this.config.network.signNullifier(sign, new BN(txData.public.nullifier), fromAddress, depositId);
 
     const startProofDate = Date.now();
     console.log('Starting proof calculation...');
@@ -521,9 +357,9 @@ export class ZeropoolClient {
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
-    let totalTokenAmount = amountGwei;
+    let totalTokenAmount = amountGwei.clone();
     for (let o of outsGwei) {
-      totalTokenAmount -= BigInt(o.amount);
+      totalTokenAmount.isub(new BN(o.amount));
     }
     const ts = Math.floor(Date.now() / 1000);
     let rec = HistoryRecord.deposit(fromAddress, totalTokenAmount, feeGwei, ts, "0", true);
@@ -534,26 +370,26 @@ export class ZeropoolClient {
 
   // Simple transfer to the shielded address. Supports several output addresses
   // This method will fail when insufficent input notes (constants::IN) for transfer
-  public async transfer(tokenAddress: string, outsWei: Output[], feeWei: bigint = BigInt(0)): Promise<string> {
+  public async transfer(tokenAddress: string, outsWei: Output[], feeWei: BN = new BN(0)): Promise<string> {
     await this.updateState(tokenAddress);
 
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const feeGwei = feeWei / denominator;
+    const feeGwei = feeWei.div(denominator);
 
     const outGwei = outsWei.map(({ to, amount }) => {
       if (!zp.validateAddress(to)) {
         throw new Error('Invalid address. Expected a shielded address.');
       }
 
-      const amountBn = BigInt(amount);
+      const amountBn = new BN(amount);
 
-      if (amountBn < MIN_TX_AMOUNT) {
+      if (amountBn.lt(MIN_TX_AMOUNT)) {
         throw new Error(`One of the values is too small (less than ${MIN_TX_AMOUNT.toString()})`);
       }
 
-      return { to, amount: (amountBn / denominator).toString() };
+      return { to, amount: (amountBn.div(denominator)).toString() };
     });
 
     const optimisticState = await this.getNewState(tokenAddress)
@@ -573,13 +409,13 @@ export class ZeropoolClient {
     const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
 
     // Temporary save transactions in the history module (to prevent history delays)
-    const feePerOut = feeGwei / BigInt(outGwei.length);
+    const feePerOut = feeGwei.div(new BN(outGwei.length));
     let recs = outGwei.map(({ to, amount }) => {
       const ts = Math.floor(Date.now() / 1000);
       if (state.isOwnAddress(to)) {
-        return HistoryRecord.transferLoopback(to, BigInt(amount), feePerOut, ts, "0", true);
+        return HistoryRecord.transferLoopback(to, new BN(amount), feePerOut, ts, "0", true);
       } else {
-        return HistoryRecord.transferOut(to, BigInt(amount), feePerOut, ts, "0", true);
+        return HistoryRecord.transferOut(to, new BN(amount), feePerOut, ts, "0", true);
       }
     });
     state.history.keepQueuedTransactions(recs, jobId);
@@ -589,14 +425,14 @@ export class ZeropoolClient {
 
   // Simple withdraw to the native address
   // This method will fail when insufficient input notes (constants::IN) for withdrawal
-  public async withdraw(tokenAddress: string, address: string, amountWei: bigint, feeWei: bigint = BigInt(0)): Promise<string> {
+  public async withdraw(tokenAddress: string, address: string, amountWei: BN, feeWei: BN = new BN(0)): Promise<string> {
     const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const amountGwei = amountWei / denominator;
-    const feeGwei = feeWei / denominator;
+    const amountGwei = amountWei.div(denominator);
+    const feeGwei = feeWei.div(denominator);
 
-    if (amountWei < MIN_TX_AMOUNT) {
+    if (amountWei.lt(MIN_TX_AMOUNT)) {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -605,7 +441,7 @@ export class ZeropoolClient {
     const optimisticState = await this.getNewState(tokenAddress)
     const addressBin = this.config.network.addressToBuffer(address);
     const txData = state.account.createWithdrawalOptimistic({
-      amount: (amountGwei + feeGwei).toString(),
+      amount: (amountGwei.add(feeGwei)).toString(),
       to: addressBin,
       fee: feeGwei.toString(),
       native_amount: '0',
@@ -643,26 +479,26 @@ export class ZeropoolClient {
 
   // Min transaction fee in Gwei (e.g. deposit or single transfer)
   // To estimate fee in the common case please use feeEstimate instead
-  public async atomicTxFee(tokenAddress: string): Promise<bigint> {
+  public async atomicTxFee(tokenAddress: string): Promise<BN> {
     const relayer = await this.getRelayerFee(tokenAddress);
-    const l1 = BigInt(0);
+    const l1 = new BN(0);
 
-    return relayer + l1;
+    return relayer.add(l1);
   }
 
   // Relayer fee component. Do not use it directly
-  private async getRelayerFee(tokenAddress: string): Promise<bigint> {
+  private async getRelayerFee(tokenAddress: string): Promise<BN> {
     if (this.relayerFee === undefined) {
       // fetch actual fee from the relayer
       const token = this.tokens[tokenAddress];
       this.relayerFee = await this.fee(token.relayerUrl);
     }
 
-    return this.relayerFee * this.getDenominator(tokenAddress);
+    return this.relayerFee!.mul(this.getDenominator(tokenAddress));
   }
 
   // Account + notes balance excluding fee needed to transfer or withdraw it
-  public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<bigint> {
+  public async calcMaxAvailableTransfer(tokenAddress: string, updateState: boolean = true): Promise<BN> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
       await this.updateState(tokenAddress);
@@ -670,8 +506,8 @@ export class ZeropoolClient {
 
     const txFee = await this.atomicTxFee(tokenAddress);
     const usableNotes = state.usableNotes();
-    const accountBalance = BigInt(state.accountBalance());
-    let notesBalance = BigInt(0);
+    const accountBalance = state.accountBalance();
+    let notesBalance = new BN(0);
 
     let txCnt = 1;
     if (usableNotes.length > CONSTANTS.IN) {
@@ -680,12 +516,12 @@ export class ZeropoolClient {
 
     for (let i = 0; i < usableNotes.length; i++) {
       const curNote = usableNotes[i][1];
-      notesBalance += BigInt(curNote.b)
+      notesBalance.iadd(new BN(curNote.b));
     }
 
-    let sum = accountBalance + notesBalance - txFee * BigInt(txCnt);
-    if (sum < 0) {
-      sum = BigInt(0);
+    let sum = accountBalance.add(notesBalance).sub(txFee.mul(new BN(txCnt)));
+    if (sum.lt(new BN(0))) {
+      sum = new BN(0);
     }
 
     return sum;
@@ -693,7 +529,7 @@ export class ZeropoolClient {
 
   // Calculate multitransfer configuration for specified token amount and fee per transaction
   // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
-  public async getTransactionParts(tokenAddress: string, amountWei: bigint, feeWei: bigint, updateState: boolean = true): Promise<Array<TxAmount>> {
+  public async getTransactionParts(tokenAddress: string, amountWei: BN, feeWei: BN, updateState: boolean = true): Promise<Array<TxAmount>> {
     const state = this.zpStates[tokenAddress];
     if (updateState) {
       await this.updateState(tokenAddress);
@@ -702,49 +538,49 @@ export class ZeropoolClient {
     let result: Array<TxAmount> = [];
 
     const usableNotes = state.usableNotes();
-    const accountBalance = BigInt(state.accountBalance());
+    const accountBalance = state.accountBalance();
 
-    let remainAmount = amountWei;
+    let remainAmount = amountWei.clone();
 
-    if (accountBalance >= remainAmount + feeWei) {
-      result.push({ amount: remainAmount, fee: feeWei, accountLimit: BigInt(0) });
+    if (accountBalance.gte(remainAmount.add(feeWei))) {
+      result.push({ amount: remainAmount, fee: feeWei, accountLimit: new BN(0) });
     } else {
-      let notesParts: Array<bigint> = [];
-      let curPart = BigInt(0);
+      let notesParts: Array<BN> = [];
+      let curPart = new BN(0);
       for (let i = 0; i < usableNotes.length; i++) {
         const curNote = usableNotes[i][1];
 
         if (i > 0 && i % CONSTANTS.IN == 0) {
           notesParts.push(curPart);
-          curPart = BigInt(0);
+          curPart = new BN(0);
         }
 
-        curPart += BigInt(curNote.b);
+        curPart.iadd(new BN(curNote.b));
 
         if (i == usableNotes.length - 1) {
           notesParts.push(curPart);
         }
       }
 
-      let oneTxPart = accountBalance;
+      let oneTxPart = accountBalance.clone();
 
-      for (let i = 0; i < notesParts.length && remainAmount > 0; i++) {
-        oneTxPart += notesParts[i];
-        if (oneTxPart - feeWei > remainAmount) {
-          oneTxPart = remainAmount + feeWei;
+      for (let i = 0; i < notesParts.length && remainAmount.gt(new BN(0)); i++) {
+        oneTxPart.iadd(notesParts[i]);
+        if (oneTxPart.sub(feeWei).gt(remainAmount)) {
+          oneTxPart = remainAmount.add(feeWei);
         }
 
-        if (oneTxPart < feeWei || oneTxPart < MIN_TX_AMOUNT) {
+        if (oneTxPart.lt(feeWei) || oneTxPart.lt(MIN_TX_AMOUNT)) {
           break;
         }
 
-        result.push({ amount: oneTxPart - feeWei, fee: feeWei, accountLimit: BigInt(0) });
+        result.push({ amount: oneTxPart.sub(feeWei), fee: feeWei, accountLimit: new BN(0) });
 
-        remainAmount -= (oneTxPart - feeWei);
-        oneTxPart = BigInt(0);
+        remainAmount.isub(oneTxPart.sub(feeWei));
+        oneTxPart = new BN(0);
       }
 
-      if (remainAmount > 0) {
+      if (remainAmount.gt(new BN(0))) {
         result = [];
       }
     }
@@ -810,7 +646,7 @@ export class ZeropoolClient {
     let readyToTransact = true;
 
     for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-      let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, BigInt(i), BATCH_SIZE).then(async txs => {
+      let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, new BN(i), BATCH_SIZE).then(async txs => {
         console.log(`Getting ${txs.length} transactions from index ${i}`);
 
         let batchState = new Map<number, StateUpdate>();
@@ -922,17 +758,17 @@ export class ZeropoolClient {
     const zpState = this.zpStates[tokenAddress];
     const token = this.tokens[tokenAddress];
 
-    const startIndex = zpState.account.nextTreeIndex();
+    const startIndex = new BN(zpState.account.nextTreeIndex().toString());
 
     const stateInfo = await this.info(token.relayerUrl);
-    const optimisticIndex = BigInt(stateInfo.optimisticDeltaIndex);
+    const optimisticIndex = new BN(stateInfo.optimisticDeltaIndex);
 
-    if (optimisticIndex > startIndex) {
+    if (optimisticIndex.gt(startIndex)) {
       const startTime = Date.now();
 
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
-      const numOfTx = Number((optimisticIndex - startIndex) / BigInt(OUTPLUSONE));
+      const numOfTx = Number((optimisticIndex.sub(startIndex)).div(new BN(OUTPLUSONE)));
       let stateUpdate = this.fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then(async txs => {
         console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
 
@@ -997,7 +833,7 @@ export class ZeropoolClient {
   // | Methods to interact with the relayer                                        |
   // -------------------------------------------------------------------------------
 
-  private async fetchTransactionsOptimistic(relayerUrl: string, offset: BigInt, limit: number = 100): Promise<string[]> {
+  private async fetchTransactionsOptimistic(relayerUrl: string, offset: BN, limit: number = 100): Promise<string[]> {
     const url = new URL(`/transactions/v2`, relayerUrl);
     url.searchParams.set('limit', limit.toString());
     url.searchParams.set('offset', offset.toString());
@@ -1040,12 +876,12 @@ export class ZeropoolClient {
     return await res.json();
   }
 
-  private async fee(relayerUrl: string): Promise<bigint> {
+  private async fee(relayerUrl: string): Promise<BN> {
     try {
       const url = new URL('/fee', relayerUrl);
       const headers = { 'content-type': 'application/json;charset=UTF-8' };
       const res = await (await fetch(url.toString(), { headers })).json();
-      return BigInt(res.fee);
+      return new BN(res.fee);
     } catch {
       return DEFAULT_TX_FEE;
     }

@@ -24,14 +24,13 @@ export class NearNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, fromAddress: string, depositId: number | null): Promise<string> {
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
     if (depositId === null) {
       throw new Error('depositId is null');
     }
 
-    const nullifierBn = new BN(nullifier.toString());
     const dataWriter = new BinaryWriter();
-    dataWriter.writeU256(nullifierBn);
+    dataWriter.writeU256(nullifier);
     dataWriter.writeString(fromAddress);
     dataWriter.writeU64(depositId);
 
@@ -49,8 +48,8 @@ export class NearNetwork implements NetworkBackend {
     return 0;
   }
 
-  async getDenominator(contractAddress: string): Promise<bigint> {
-    return BigInt('1000000000000000'); // FIXME: get from the contract
+  async getDenominator(contractAddress: string): Promise<BN> {
+    return new BN('1000000000000000'); // FIXME: get from the contract
   }
 
   defaultNetworkName(): string {
@@ -98,11 +97,10 @@ export class NearNetwork implements NetworkBackend {
       default: throw new Error(`Unknown tx type ${calldata.txType}`);
     }
 
-    const memoHex = bufToHex(calldata.memo);
-    const fee = BigInt('0x' + memoHex.substr(0, 16));
+    const fee = new BN(calldata.memo.subarray(0, 8));
     let withdrawAddress: string | null = null;
     if (txType == TxType.Withdraw) {
-      withdrawAddress = '0x' + memoHex.substr(32, 40);
+      withdrawAddress = '0x' + calldata.memo.subarray(16, 36).toString('hex');
     }
     let depositAddress: string | null = null;
     if (txType == TxType.Deposit) {
@@ -115,7 +113,7 @@ export class NearNetwork implements NetworkBackend {
       fee,
       depositAddress,
       withdrawAddress,
-      tokenAmount: BigInt(calldata.tokenAmount.toString()),
+      tokenAmount: calldata.tokenAmount,
     };
   }
 
@@ -154,16 +152,16 @@ class PoolCalldata {
     Object.assign(this, data)
   }
 
-  nullifier!: BN
-  outCommit!: BN
-  tokenId!: string
-  delta!: BN
-  transactProof!: BN[]
-  rootAfter!: BN
-  treeProof!: BN[]
-  txType!: number
-  memo!: Uint8Array
-  extraData?: Uint8Array
+  nullifier!: BN;
+  outCommit!: BN;
+  tokenId!: string;
+  delta!: BN;
+  transactProof!: BN[];
+  rootAfter!: BN;
+  treeProof!: BN[];
+  txType!: number;
+  memo!: Buffer;
+  extraData?: Buffer;
 
   get tokenAmount(): BN {
     return new BN(zp.parseDelta(this.delta.toString()).v);
@@ -181,18 +179,18 @@ class PoolCalldata {
 }
 
 function deserializePoolData(data: Buffer): PoolCalldata {
-  const reader = new BinaryReader(data)
+  const reader = new BinaryReader(data);
 
-  const nullifier = reader.readU256()
-  const outCommit = reader.readU256()
-  const tokenId = reader.readString()
-  const delta = reader.readU256()
-  const transactProof = reader.readFixedArray(8, () => reader.readU256())
-  const rootAfter = reader.readU256()
-  const treeProof = reader.readFixedArray(8, () => reader.readU256())
-  const txType = reader.readU8()
-  const memo = reader.readDynamicBuffer()
-  const extraData = reader.readBufferUntilEnd()
+  const nullifier = reader.readU256();
+  const outCommit = reader.readU256();
+  const tokenId = reader.readString();
+  const delta = reader.readU256();
+  const transactProof = reader.readFixedArray(8, () => reader.readU256());
+  const rootAfter = reader.readU256();
+  const treeProof = reader.readFixedArray(8, () => reader.readU256());
+  const txType = reader.readU8();
+  const memo = reader.readDynamicBuffer();
+  const extraData = reader.readBufferUntilEnd();
 
   if (!reader.isEmpty()) {
     throw new Error('pool data is not fully consumed');
@@ -209,5 +207,5 @@ function deserializePoolData(data: Buffer): PoolCalldata {
     txType,
     memo,
     extraData,
-  })
+  });
 }

@@ -27,14 +27,13 @@ export class WavesNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, fromAddress: string, depositId: number | null): Promise<string> {
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
     if (depositId === null) {
       throw new Error('depositId is null');
     }
 
-    const nullifierBn = new BN(nullifier.toString());
     const dataWriter = new BinaryWriter('be');
-    dataWriter.writeU256(nullifierBn);
+    dataWriter.writeU256(nullifier);
     dataWriter.writeString(fromAddress);
 
     const dataToSign = Buffer.from(dataWriter.toArray()).toString('hex');
@@ -50,8 +49,8 @@ export class WavesNetwork implements NetworkBackend {
     return 0;
   }
 
-  async getDenominator(contractAddress: string): Promise<bigint> {
-    return BigInt('100000000'); // FIXME: get from the contract
+  async getDenominator(contractAddress: string): Promise<BN> {
+    return new BN('100000000'); // FIXME: get from the contract
   }
 
   defaultNetworkName(): string {
@@ -91,32 +90,23 @@ export class WavesNetwork implements NetworkBackend {
     }
 
     const calldata = deserializePoolData(Buffer.from(tx.calldata, 'base64'));
-    let txType
-    switch (calldata.txType) {
-      case 0: txType = TxType.Deposit; break;
-      case 1: txType = TxType.Transfer; break;
-      case 2: txType = TxType.Withdraw; break;
-      default: throw new Error(`Unknown tx type ${calldata.txType}`);
-    }
-
-    const memoHex = bufToHex(calldata.memo);
-    const fee = BigInt('0x' + memoHex.substr(0, 16));
+    const fee = new BN(calldata.memo.subarray(0, 8));
     let withdrawAddress: string | null = null;
-    if (txType == TxType.Withdraw) {
-      withdrawAddress = '0x' + memoHex.substr(32, 40);
+    if (calldata.txType == TxType.Withdraw) {
+      withdrawAddress = '0x' + calldata.memo.subarray(16, 36).toString('hex');
     }
     let depositAddress: string | null = null;
-    if (txType == TxType.Deposit) {
+    if (calldata.txType == TxType.Deposit) {
       depositAddress = calldata.depositAddress;
     }
 
     return {
       timestamp: Number(tx.timestamp),
-      txType,
+      txType: calldata.txType,
       fee,
       depositAddress,
       withdrawAddress,
-      tokenAmount: BigInt(calldata.tokenAmount.toString()),
+      tokenAmount: calldata.tokenAmount,
     };
   }
 
@@ -164,16 +154,16 @@ class PoolCalldata {
     Object.assign(this, data)
   }
 
-  nullifier!: BN
-  outCommit!: BN
-  tokenId!: string
-  delta!: BN
-  transactProof!: BN[]
-  rootAfter!: BN
-  treeProof!: BN[]
-  txType!: number
-  memo!: Uint8Array
-  extraData?: Uint8Array
+  nullifier!: BN;
+  outCommit!: BN;
+  tokenId!: string;
+  delta!: BN;
+  transactProof!: BN[];
+  rootAfter!: BN;
+  treeProof!: BN[];
+  txType!: TxType;
+  memo!: Buffer;
+  extraData?: Buffer;
 
   get tokenAmount(): BN {
     return new BN(zp.parseDelta(this.delta.toString()).v);
@@ -208,18 +198,30 @@ function deserializePoolData(data: Buffer): PoolCalldata {
   // # depositPk          optional 32 bytes
   // # depositSignature   optional 64 bytes
 
-  const nullifier = reader.readU256()
-  const outCommit = reader.readU256()
-  const assetId = reader.readBuffer(32)
-  const delta = reader.readU256()
-  const transactProof = reader.readFixedArray(8, () => reader.readU256())
-  const treeProof = reader.readFixedArray(8, () => reader.readU256())
-  const rootAfter = reader.readU256()
-  const txType = reader.readU16()
+  const nullifier = reader.readU256();
+  const outCommit = reader.readU256();
+  const assetId = reader.readBuffer(32);
+  const delta = reader.readU256();
+  const transactProof = reader.readFixedArray(8, () => reader.readU256());
+  const treeProof = reader.readFixedArray(8, () => reader.readU256());
+  const rootAfter = reader.readU256();
+  const txTypeNum = reader.readU16();
+  let txType;
+  switch (txTypeNum) {
+    case 0: txType = TxType.Deposit; break;
+    case 1: txType = TxType.Transfer; break;
+    case 2: txType = TxType.Withdraw; break;
+    default: throw new Error(`Unknown tx type ${txTypeNum}`);
+  }
 
-  const memoData = reader.readBufferUntilEnd()!
-  const memo = memoData.slice(0, -(64 + 32))
-  const extraData = memoData.slice(-(64 + 32))
+
+  const memoData = reader.readBufferUntilEnd();
+  if (!memoData || memoData.length < 64 + 32) {
+    throw new Error(`Memo is too short`);
+  }
+
+  const memo = memoData.subarray(0, -(64 + 32));
+  const extraData = memoData.subarray(-(64 + 32));
 
   const tokenId = bs58.encode(assetId)
 

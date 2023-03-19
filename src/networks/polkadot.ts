@@ -1,6 +1,7 @@
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { truncateHexPrefix } from '../utils';
 import { numberToHex, padLeft } from 'web3-utils';
+import BN from 'bn.js';
 
 export class PolkadotNetwork implements NetworkBackend {
   approveChangesBalance: boolean = false;
@@ -9,12 +10,12 @@ export class PolkadotNetwork implements NetworkBackend {
     return 0;
   }
 
-  async getDenominator(contractAddress: string): Promise<bigint> {
-    return BigInt(1000);
+  async getDenominator(contractAddress: string): Promise<BN> {
+    return new BN(1000);
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BigInt, _fromAddress: string, _depositId: number | null): Promise<string> {
-    const data = '0x' + padLeft(numberToHex(nullifier.toString()).slice(2), 64);
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, _fromAddress: string, _depositId: number | null): Promise<string> {
+    const data = '0x' + padLeft(nullifier.toString('hex'), 64);
     return truncateHexPrefix(await signFn(data));
   }
 

@@ -45,6 +45,8 @@ export namespace NetworkType {
       case NetworkType.polkadot:
       case NetworkType.kusama:
         return `/${account}'`;
+      default:
+        throw new Error(`Unknown network: ${network}`);
     }
   }
 
@@ -65,6 +67,8 @@ export namespace NetworkType {
         return 354;
       case NetworkType.kusama:
         return 434;
+      default:
+        throw new Error(`Unknown network: ${network}`);
     }
   }
 }

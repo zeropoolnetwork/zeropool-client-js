@@ -5,13 +5,14 @@ import { bufToHex } from './utils';
 import { HistoryStorage } from './history'
 import { zp } from './zp';
 import { NetworkBackend } from './networks/network';
+import BN from 'bn.js';
 
 export class ZeroPoolState {
-  public denominator: bigint;
+  public denominator: BN;
   public account: UserAccount;
   public history: HistoryStorage;
 
-  public static async create(sk: Uint8Array, networkName: string, network: NetworkBackend, denominator: bigint): Promise<ZeroPoolState> {
+  public static async create(sk: Uint8Array, networkName: string, network: NetworkBackend, denominator: BN): Promise<ZeroPoolState> {
     const zpState = new ZeroPoolState();
     zpState.denominator = denominator;
     const userId = bufToHex(hash(sk));
@@ -29,22 +30,22 @@ export class ZeroPoolState {
   }
 
   // in wei
-  public getTotalBalance(): bigint {
-    return BigInt(this.account.totalBalance()) * this.denominator;
+  public getTotalBalance(): BN {
+    return new BN(this.account.totalBalance()).mul(this.denominator);
   }
 
   // in wei
-  public getBalances(): [bigint, bigint, bigint] {
-    const total = BigInt(this.account.totalBalance()) * this.denominator;
-    const acc = BigInt(this.account.accountBalance()) * this.denominator;
-    const note = BigInt(this.account.noteBalance()) * this.denominator;
+  public getBalances(): [BN, BN, BN] {
+    const total = new BN(this.account.totalBalance()).mul(this.denominator);
+    const acc = new BN(this.account.accountBalance()).mul(this.denominator);
+    const note = new BN(this.account.noteBalance()).mul(this.denominator);
 
     return [total, acc, note];
   }
 
   // in Gwei
-  public accountBalance(): bigint {
-    return BigInt(this.account.accountBalance());
+  public accountBalance(): BN {
+    return new BN(this.account.accountBalance());
   }
 
   public usableNotes(): any[] {

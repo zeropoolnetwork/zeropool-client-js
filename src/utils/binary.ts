@@ -197,6 +197,18 @@ export class BinaryReader {
     return new BN(buf, this.endian);
   }
 
+  @handlingRangeError
+  readUint(size: number): BN {
+    const buf = this.readBuffer(size);
+    return new BN(buf, this.endian);
+  }
+
+  @handlingRangeError
+  readInt(size: number): BN {
+    const buf = this.readBuffer(size);
+    return new BN(buf, this.endian).fromTwos(256);
+  }
+
   readBuffer(len: number): Buffer {
     if ((this.offset + len) > this.buf.length) {
       throw new Error(`Expected buffer length ${len} isn't within bounds`);

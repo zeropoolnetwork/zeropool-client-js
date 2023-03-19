@@ -32,9 +32,7 @@ export type Paths = {
  * @returns stuff needed for creating a ZeroPoolState
  */
 export async function init(snarkParams: SnarkConfigParams, paths: Paths = {}): Promise<ZeroPoolLibState> {
-  // Safari doesn't support spawning Workers from inside other Workers yet.
-  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-  const isMt = await threads() && !isSafari;
+  const isMt = await threads();
   let wasmPath = paths.wasmSt || WASM_ST_PATH;
   if (isMt) {
     console.log('Using multi-threaded version');
@@ -55,20 +53,17 @@ export async function init(snarkParams: SnarkConfigParams, paths: Paths = {}): P
 
   await worker.initWasm({
     txParams: snarkParams.transferParamsUrl,
-    treeParams: snarkParams.treeParamsUrl,
   }, wasmPath);
 
   await zp.default(wasmPath);
 
   const transferVk = await (await fetch(snarkParams.transferVkUrl)).json();
-  const treeVk = await (await fetch(snarkParams.treeVkUrl)).json();
 
   return {
     fileCache,
     worker,
     snarkParams: {
       transferVk,
-      treeVk,
     }
   };
 }

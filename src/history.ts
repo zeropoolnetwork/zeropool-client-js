@@ -4,6 +4,7 @@ import { zp } from './zp';
 import { TxType } from './tx';
 import { CONSTANTS } from './constants';
 import { NetworkBackend } from './networks/network';
+import BN from 'bn.js';
 
 export enum HistoryTransactionType {
   Deposit = 1,
@@ -28,29 +29,29 @@ export class HistoryRecord {
     public timestamp: number,
     public from: string,
     public to: string,
-    public amount: bigint,
-    public fee: bigint,
+    public amount: BN,
+    public fee: BN,
     public txHash: string,
     public pending: boolean,
   ) { }
 
-  public static deposit(from: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+  public static deposit(from: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
     return new HistoryRecord(HistoryTransactionType.Deposit, ts, from, "", amount, fee, txHash, pending);
   }
 
-  public static transferIn(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+  public static transferIn(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
     return new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", to, amount, fee, txHash, pending);
   }
 
-  public static transferOut(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+  public static transferOut(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
     return new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", to, amount, fee, txHash, pending);
   }
 
-  public static transferLoopback(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+  public static transferLoopback(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
     return new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, "", to, amount, fee, txHash, pending);
   }
 
-  public static withdraw(to: string, amount: bigint, fee: bigint, ts: number, txHash: string, pending: boolean): HistoryRecord {
+  public static withdraw(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
     return new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", to, amount, fee, txHash, pending);
   }
 
@@ -376,7 +377,7 @@ export class HistoryStorage {
           const outs = this.processOuts(memo, tx.fee, tx.timestamp, txHash, pending);
           allRecords = allRecords.concat(outs);
         } else if (tx.txType == TxType.Withdraw) {
-          let rec = HistoryRecord.withdraw(tx.withdrawAddress!, -(tx.tokenAmount + tx.fee), tx.fee, tx.timestamp, txHash, pending);
+          let rec = HistoryRecord.withdraw(tx.withdrawAddress!, tx.tokenAmount.add(tx.fee).neg(), tx.fee, tx.timestamp, txHash, pending);
           allRecords.push(HistoryRecordIdx.create(rec, memo.index));
         }
 
@@ -400,12 +401,12 @@ export class HistoryStorage {
     throw new Error(`Cannot find txHash for memo at index ${memo.index}`);
   }
 
-  private processOuts(memo: DecryptedMemo, feeAmount: bigint, ts: number, txHash: string, pending: boolean): HistoryRecordIdx[] {
+  private processOuts(memo: DecryptedMemo, feeAmount: BN, ts: number, txHash: string, pending: boolean): HistoryRecordIdx[] {
     let allRecords: HistoryRecordIdx[] = [];
 
     if (memo.acc) {
       // 1. we initiated it => outcoming tx(s)
-      for (let {note, index} of memo.outNotes) {
+      for (let { note, index } of memo.outNotes) {
         const destAddr = zp.assembleAddress(note.d, note.p_d);
 
         let rec: HistoryRecord;
@@ -413,10 +414,10 @@ export class HistoryStorage {
           return obj.index === index
         })) {
           // a special case: loopback transfer
-          rec = HistoryRecord.transferLoopback(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
+          rec = HistoryRecord.transferLoopback(destAddr, new BN(note.b), feeAmount.div(new BN(memo.outNotes.length)), ts, txHash, pending);
         } else {
           // regular transfer to another person
-          rec = HistoryRecord.transferOut(destAddr, BigInt(note.b), feeAmount / BigInt(memo.outNotes.length), ts, txHash, pending);
+          rec = HistoryRecord.transferOut(destAddr, new BN(note.b), feeAmount.div(new BN(memo.outNotes.length)), ts, txHash, pending);
         }
 
         allRecords.push(HistoryRecordIdx.create(rec, index));
@@ -425,7 +426,7 @@ export class HistoryStorage {
       // 2. somebody initiated it => incoming tx(s)
       for (let { note, index } of memo.inNotes) {
         const destAddr = zp.assembleAddress(note.d, note.p_d);
-        let rec = HistoryRecord.transferIn(destAddr, BigInt(note.b), BigInt(0), ts, txHash, pending);
+        let rec = HistoryRecord.transferIn(destAddr, new BN(note.b), new BN(0), ts, txHash, pending);
         allRecords.push(HistoryRecordIdx.create(rec, index));
       }
     }
