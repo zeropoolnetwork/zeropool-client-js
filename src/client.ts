@@ -1,4 +1,4 @@
-import type { Output, Proof, DecryptedMemo, ITransferData, IWithdrawData, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
+import type { Output, Proof, DecryptedMemo, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
 import BN from 'bn.js';
 
 import { SnarkParams, Tokens } from './config';

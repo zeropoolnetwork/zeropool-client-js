@@ -1,9 +1,4 @@
 import BN from 'bn.js';
-import { CONSTANTS } from './constants';
-
-// Sizes in bytes
-const MEMO_META_SIZE: number = 8; // fee (u64)
-const MEMO_META_WITHDRAW_SIZE: number = 8 + 8 + 20; // fee (u64) + amount + address (u160)
 
 export class InvalidNumberOfOutputs extends Error {
   public numOutputs: number;

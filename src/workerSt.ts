@@ -9,7 +9,7 @@ let txParams: Params;
 let txParser: TxParser;
 
 const obj = {
-  async initWasm(paramUrls: { txParams: string; treeParams: string }, wasmPath?: string) {
+  async initWasm(paramUrls: { txParams: string }, wasmPath?: string) {
     console.info('Initializing web worker...');
     await init(wasmPath || WASM_PATH);
 
