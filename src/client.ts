@@ -8,17 +8,10 @@ import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history';
 import { zp } from './zp';
+import { RelayerAPI, TxToRelayer } from './relayer';
 
 const MIN_TX_AMOUNT = new BN(10000000);
-const DEFAULT_TX_FEE = new BN(0);
 const BATCH_SIZE = 100;
-
-export interface RelayerInfo {
-  root: string;
-  optimisticRoot: string;
-  deltaIndex: string;
-  optimisticDeltaIndex: string;
-}
 
 export interface BatchResult {
   txCount: number;
@@ -33,21 +26,6 @@ export interface TxAmount { // all values are in Gwei
   fee: BN;  // fee 
   accountLimit: BN;  // minimum account remainder after transaction
   // (used for complex multi-tx transfers, default: 0)
-}
-
-export interface TxToRelayer {
-  txType: TxType;
-  memo: string;
-  proof: Proof;
-  extraData?: string,
-}
-
-export interface JobInfo {
-  state: string;
-  txHash: string[];
-  createdOn: BN;
-  finishedOn?: BN;
-  failedReason?: string;
 }
 
 export interface ClientConfig {
@@ -72,6 +50,7 @@ export class ZeropoolClient {
   private config: ClientConfig;
   private relayerFee: BN | undefined; // in wei, do not use directly, use getRelayerFee method instead
   private updateStatePromise: Promise<boolean> | undefined;
+  private relayer: RelayerAPI;
 
   public static async create(config: ClientConfig): Promise<ZeropoolClient> {
     const client = new ZeropoolClient();
@@ -80,7 +59,7 @@ export class ZeropoolClient {
     client.snarkParams = config.snarkParams;
     client.tokens = config.tokens;
     client.config = config;
-
+    client.relayer = new RelayerAPI(config.tokens);
     client.relayerFee = undefined;
 
     let networkName = config.networkName;
@@ -237,13 +216,12 @@ export class ZeropoolClient {
   // Waiting while relayer process the job
   // return transaction(s) hash(es) on success or throw an error
   public async waitJobCompleted(tokenAddress: string, jobId: string): Promise<string[]> {
-    const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
     const INTERVAL_MS = 1000;
     let hashes: string[];
     while (true) {
-      const job = await this.getJob(token.relayerUrl, jobId);
+      const job = await this.relayer.getJob(tokenAddress, jobId);
 
       if (job === null) {
         console.error(`Job ${jobId} not found.`);
@@ -270,11 +248,9 @@ export class ZeropoolClient {
   // return transaction(s) hash(es) on success or throw an error
   // TODO: change job state logic after relayer upgrade! <look for a `queued` state>
   public async waitJobQueued(tokenAddress: string, jobId: string): Promise<boolean> {
-    const token = this.tokens[tokenAddress];
-
     const INTERVAL_MS = 1000;
     while (true) {
-      const job = await this.getJob(token.relayerUrl, jobId);
+      const job = await this.relayer.getJob(tokenAddress, jobId);
 
       if (job === null) {
         console.error(`Job ${jobId} not found.`);
@@ -307,7 +283,6 @@ export class ZeropoolClient {
     outsWei: Output[] = [],
     depositId: number | null = null,
   ): Promise<string> {
-    const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
     const amountGwei = amountWei.div(denominator);
@@ -354,7 +329,7 @@ export class ZeropoolClient {
     }
 
     let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, extraData };
-    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
     let totalTokenAmount = amountGwei.clone();
@@ -373,7 +348,6 @@ export class ZeropoolClient {
   public async transfer(tokenAddress: string, outsWei: Output[], feeWei: BN = new BN(0)): Promise<string> {
     await this.updateState(tokenAddress);
 
-    const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
     const feeGwei = feeWei.div(denominator);
@@ -406,7 +380,7 @@ export class ZeropoolClient {
     }
 
     let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
-    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
 
     // Temporary save transactions in the history module (to prevent history delays)
     const feePerOut = feeGwei.div(new BN(outGwei.length));
@@ -426,7 +400,6 @@ export class ZeropoolClient {
   // Simple withdraw to the native address
   // This method will fail when insufficient input notes (constants::IN) for withdrawal
   public async withdraw(tokenAddress: string, address: string, amountWei: BN, feeWei: BN = new BN(0)): Promise<string> {
-    const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
     const amountGwei = amountWei.div(denominator);
@@ -462,7 +435,7 @@ export class ZeropoolClient {
     }
 
     let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
-    const jobId = await this.sendTransactions(token.relayerUrl, [tx]);
+    const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
 
     // Temporary save transaction in the history module (to prevent history delays)
     const ts = Math.floor(Date.now() / 1000);
@@ -480,18 +453,17 @@ export class ZeropoolClient {
   // Min transaction fee in Gwei (e.g. deposit or single transfer)
   // To estimate fee in the common case please use feeEstimate instead
   public async atomicTxFee(tokenAddress: string): Promise<BN> {
-    const relayer = await this.getRelayerFee(tokenAddress);
+    const fee = await this.getRelayerFee(tokenAddress);
     const l1 = new BN(0);
 
-    return relayer.add(l1);
+    return fee.add(l1);
   }
 
   // Relayer fee component. Do not use it directly
   private async getRelayerFee(tokenAddress: string): Promise<BN> {
     if (this.relayerFee === undefined) {
       // fetch actual fee from the relayer
-      const token = this.tokens[tokenAddress];
-      this.relayerFee = await this.fee(token.relayerUrl);
+      this.relayerFee = await this.relayer.fee(tokenAddress);
     }
 
     return this.relayerFee!.mul(this.getDenominator(tokenAddress));
@@ -621,11 +593,10 @@ export class ZeropoolClient {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
 
     const zpState = this.zpStates[tokenAddress];
-    const token = this.tokens[tokenAddress];
     const state = this.zpStates[tokenAddress];
 
     const startIndex = Number(zpState.account.nextTreeIndex());
-    const stateInfo = await this.info(token.relayerUrl);
+    const stateInfo = await this.relayer.info(tokenAddress);
     const nextIndex = Number(stateInfo.deltaIndex);
     const optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
 
@@ -646,7 +617,7 @@ export class ZeropoolClient {
     let readyToTransact = true;
 
     for (let i = startIndex; i <= optimisticIndex; i = i + BATCH_SIZE * OUTPLUSONE) {
-      let oneBatch = this.fetchTransactionsOptimistic(token.relayerUrl, new BN(i), BATCH_SIZE).then(async txs => {
+      let oneBatch = this.relayer.fetchTransactionsOptimistic(tokenAddress, new BN(i), BATCH_SIZE).then(async txs => {
         console.log(`Getting ${txs.length} transactions from index ${i}`);
 
         let batchState = new Map<number, StateUpdate>();
@@ -756,11 +727,8 @@ export class ZeropoolClient {
     const OUTPLUSONE = CONSTANTS.OUT + 1;
 
     const zpState = this.zpStates[tokenAddress];
-    const token = this.tokens[tokenAddress];
-
     const startIndex = new BN(zpState.account.nextTreeIndex().toString());
-
-    const stateInfo = await this.info(token.relayerUrl);
+    const stateInfo = await this.relayer.info(tokenAddress);
     const optimisticIndex = new BN(stateInfo.optimisticDeltaIndex);
 
     if (optimisticIndex.gt(startIndex)) {
@@ -769,7 +737,7 @@ export class ZeropoolClient {
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       const numOfTx = Number((optimisticIndex.sub(startIndex)).div(new BN(OUTPLUSONE)));
-      let stateUpdate = this.fetchTransactionsOptimistic(token.relayerUrl, startIndex, numOfTx).then(async txs => {
+      let stateUpdate = this.relayer.fetchTransactionsOptimistic(tokenAddress, startIndex, numOfTx).then(async txs => {
         console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
 
         let indexedTxs: IndexedTx[] = [];
@@ -826,64 +794,6 @@ export class ZeropoolClient {
 
     if (startIndex < endIndex) {
       console.info(`📝 Adding hashes to state (from index ${startIndex} to index ${endIndex - OUTPLUSONE})`);
-    }
-  }
-
-  // ------------------=========< Relayer interactions >=========-------------------
-  // | Methods to interact with the relayer                                        |
-  // -------------------------------------------------------------------------------
-
-  private async fetchTransactionsOptimistic(relayerUrl: string, offset: BN, limit: number = 100): Promise<string[]> {
-    const url = new URL(`/transactions/v2`, relayerUrl);
-    url.searchParams.set('limit', limit.toString());
-    url.searchParams.set('offset', offset.toString());
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    return await (await fetch(url.toString(), { headers })).json();
-  }
-
-  // returns transaction job ID
-  private async sendTransactions(relayerUrl: string, txs: TxToRelayer[]): Promise<string> {
-    const url = new URL('/sendTransactions', relayerUrl);
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    const res = await fetch(url.toString(), { method: 'POST', headers, body: JSON.stringify(txs) });
-
-    if (!res.ok) {
-      const body = await res.json();
-      throw new Error(`Error ${res.status}: ${JSON.stringify(body)}`)
-    }
-
-    const json = await res.json();
-    return json.jobId;
-  }
-
-  private async getJob(relayerUrl: string, id: string): Promise<JobInfo | null> {
-    const url = new URL(`/job/${id}`, relayerUrl);
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    const res = await (await fetch(url.toString(), { headers })).json();
-
-    if (typeof res === 'string') {
-      return null;
-    } else {
-      return res;
-    }
-  }
-
-  private async info(relayerUrl: string): Promise<RelayerInfo> {
-    const url = new URL('/info', relayerUrl);
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    const res = await fetch(url.toString(), { headers });
-
-    return await res.json();
-  }
-
-  private async fee(relayerUrl: string): Promise<BN> {
-    try {
-      const url = new URL('/fee', relayerUrl);
-      const headers = { 'content-type': 'application/json;charset=UTF-8' };
-      const res = await (await fetch(url.toString(), { headers })).json();
-      return new BN(res.fee);
-    } catch {
-      return DEFAULT_TX_FEE;
     }
   }
 }
