@@ -7,8 +7,11 @@ import { threads } from 'wasm-feature-detect';
 import { SnarkConfigParams, SnarkParams } from './config';
 import { FileCache } from './file-cache';
 
-const WASM_ST_PATH = new URL('libzeropool-rs-wasm-web/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
-const WASM_MT_PATH = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url).href;
+
+export const defaultPaths = {
+  wasmMt: 'node_modules/libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_mt.wasm',
+  wasmSt: 'node_modules/libzeropool-rs-wasm-web/libzeropool_rs_wasm.wasm',
+}
 
 export let zp: any = zpSt;
 
@@ -19,10 +22,10 @@ export class ZeroPoolLibState {
 }
 
 export type Paths = {
-  workerMt?: string,
-  workerSt?: string,
-  wasmMt?: string,
-  wasmSt?: string,
+  workerMt: string,
+  workerSt: string,
+  wasmMt: string,
+  wasmSt: string,
 };
 
 /**
@@ -31,13 +34,13 @@ export type Paths = {
  * @param paths optional paths to wasm and worker files
  * @returns stuff needed for creating a ZeroPoolState
  */
-export async function init(snarkParams: SnarkConfigParams, paths: Paths = {}): Promise<ZeroPoolLibState> {
+export async function init(snarkParams: SnarkConfigParams, paths: Paths): Promise<ZeroPoolLibState> {
   const isMt = await threads();
-  let wasmPath = paths.wasmSt || WASM_ST_PATH;
+  let wasmPath = paths.wasmSt;
   if (isMt) {
     console.log('Using multi-threaded version');
     zp = zpMt;
-    wasmPath = paths.wasmMt || WASM_MT_PATH;
+    wasmPath = paths.wasmMt;
   } else {
     console.log('Using single-threaded version. Proof generation will be significantly slower.');
   }
@@ -46,9 +49,9 @@ export async function init(snarkParams: SnarkConfigParams, paths: Paths = {}): P
 
   let worker: any;
   if (isMt) {
-    worker = wrap(new Worker(paths.workerMt || new URL('./workerMt.js', import.meta.url), { type: 'module' }));
+    worker = wrap(new Worker(new URL(paths.workerMt)));
   } else {
-    worker = wrap(new Worker(paths.workerSt || new URL('./workerSt.js', import.meta.url), { type: 'module' }));
+    worker = wrap(new Worker(paths.workerSt));
   }
 
   await worker.initWasm({

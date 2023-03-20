@@ -24,8 +24,8 @@
     "ethereumjs-util": "^7.1.5",
     "hdwallet-babyjub": "0.0.2",
     "idb": "^7.1.1",
-    "libzeropool-rs-wasm-web": "0.8.1",
-    "libzeropool-rs-wasm-web-mt": "0.8.1",
+    "libzeropool-rs-wasm-web": "0.9.1",
+    "libzeropool-rs-wasm-web-mt": "0.9.1",
     "near-api-js": "^1.1.0",
     "promise-throttle": "^1.1.2",
     "regenerator-runtime": "^0.13.11",
@@ -37,7 +37,8 @@
     "ts-loader": "^9.2.6",
     "typescript": "^4.1.2",
     "webpack": "^5.64.2",
-    "webpack-cli": "^4.9.1"
+    "webpack-cli": "^4.9.1",
+    "webpack-manifest-plugin": "^5.0.0"
   },
   "resolutions": {
     "@types/responselike": "1.0.0"

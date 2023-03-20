@@ -3,15 +3,13 @@ import { Proof, Params, TxParser, IndexedTx, ParseTxsResult, default as init, in
 
 import { FileCache } from './file-cache';
 
-const WASM_PATH = new URL('libzeropool-rs-wasm-web-mt/libzeropool_rs_wasm_bg.wasm', import.meta.url);
-
 let txParams: Params;
 let txParser: TxParser;
 
 const obj = {
   async initWasm(paramUrls: { txParams: string; }, wasmPath?: string) {
     console.info('Initializing web worker...');
-    await init(wasmPath || WASM_PATH);
+    await init(wasmPath);
     console.info('Initializing thread pool...')
     await initThreadPool(navigator.hardwareConcurrency);
 
@@ -27,7 +25,7 @@ const obj = {
       txParams = Params.fromBinaryExtended(new Uint8Array(txParamsData!), false, false);
     }
 
-    txParser = TxParser.new()
+    txParser = TxParser._new()
     console.info('Web worker init complete.');
   },
 

@@ -1,30 +1,24 @@
-// Currently not used
+// Example webpack config for web workers
 const path = require('path');
+const { WebpackManifestPlugin } = require('webpack-manifest-plugin');
 
 module.exports = {
   entry: {
-    workerSt: './src/workerSt.ts',
-    workerMt: './src/workerMt.ts',
+    // Replace with:
+    // workerSt: './node_modules/zeropool-client-js/lib/workerSt.js',
+    // workerMt: './node_modules/zeropool-client-js/lib/workerMt.js',
+    workerSt: './lib/workerSt.js',
+    workerMt: './lib/workerMt.js',
   },
   output: {
-    path: path.join(process.cwd(), 'lib'),
-    filename: '[name].js',
-    assetModuleFilename: '[name][ext]',
+    path: path.join(process.cwd(), 'workers'),
+    filename: '[name].[fullhash].js',
+    assetModuleFilename: '[name][hash][ext]',
     publicPath: './',
   },
   target: 'webworker',
-  mode: 'development',
-  devtool: 'source-map',
-  module: {
-    rules: [
-      {
-        test: /\.(ts)$/,
-        use: 'ts-loader',
-        exclude: /node_modules/,
-      }
-    ],
-  },
-  resolve: {
-    extensions: ['.ts', '.js'],
-  },
+  mode: 'production',
+  plugins: [
+    new WebpackManifestPlugin()
+  ]
 };
