@@ -13,6 +13,8 @@ import { RelayerAPI, TxToRelayer } from './relayer';
 const MIN_TX_AMOUNT = new BN(10000000);
 const BATCH_SIZE = 100;
 
+export type Amount = string | number | BN | bigint;
+
 export interface BatchResult {
   txCount: number;
   maxMinedIndex: number;
@@ -93,13 +95,15 @@ export class ZeropoolClient {
   }
 
   // Convert native pool amount to the base units
-  public shieldedAmountToWei(tokenAddress, amountShielded: BN): BN {
-    return amountShielded.mul(this.zpStates[tokenAddress].denominator);
+  public shieldedAmountToWei(tokenAddress, amountShielded: Amount): BN {
+    const amountShieldedBn = new BN(amountShielded.toString());
+    return amountShieldedBn.mul(this.zpStates[tokenAddress].denominator);
   }
 
   // Convert base units to the native pool amount
-  public weiToShieldedAmount(tokenAddress, amountWei: BN): BN {
-    return amountWei.div(this.zpStates[tokenAddress].denominator)
+  public weiToShieldedAmount(tokenAddress, amountWei: Amount): BN {
+    const amountWeiBn = new BN(amountWei.toString());
+    return amountWeiBn.div(this.zpStates[tokenAddress].denominator)
   }
 
   // Get account + notes balance in wei
@@ -275,20 +279,22 @@ export class ZeropoolClient {
   // Returns jobId
   public async deposit(
     tokenAddress: string,
-    amountWei: BN,
+    amountWei: Amount,
     sign: (data: string) => Promise<string>,
     fromAddress: string,
     // it should be null for EVM
-    feeWei: BN = new BN(0),
+    feeWei: Amount = new BN(0),
     outsWei: Output[] = [],
     depositId: number | null = null,
   ): Promise<string> {
+    const amountWeiBn = new BN(amountWei.toString());
+    const feeWeiBn = new BN(feeWei.toString());
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const amountGwei = amountWei.div(denominator);
-    const feeGwei = feeWei.div(denominator);
+    const amountGwei = amountWeiBn.div(denominator);
+    const feeGwei = feeWeiBn.div(denominator);
 
-    if (amountWei.lt(MIN_TX_AMOUNT)) {
+    if (amountWeiBn.lt(MIN_TX_AMOUNT)) {
       throw new Error(`Deposit is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -345,12 +351,14 @@ export class ZeropoolClient {
 
   // Simple transfer to the shielded address. Supports several output addresses
   // This method will fail when insufficent input notes (constants::IN) for transfer
-  public async transfer(tokenAddress: string, outsWei: Output[], feeWei: BN = new BN(0)): Promise<string> {
+  public async transfer(tokenAddress: string, outsWei: Output[], feeWei: Amount = new BN(0)): Promise<string> {
+    const feeWeiBn = new BN(feeWei.toString());
+
     await this.updateState(tokenAddress);
 
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const feeGwei = feeWei.div(denominator);
+    const feeGwei = feeWeiBn.div(denominator);
 
     const outGwei = outsWei.map(({ to, amount }) => {
       if (!zp.validateAddress(to)) {
@@ -399,13 +407,15 @@ export class ZeropoolClient {
 
   // Simple withdraw to the native address
   // This method will fail when insufficient input notes (constants::IN) for withdrawal
-  public async withdraw(tokenAddress: string, address: string, amountWei: BN, feeWei: BN = new BN(0)): Promise<string> {
+  public async withdraw(tokenAddress: string, address: string, amountWei: Amount, feeWei: Amount = new BN(0)): Promise<string> {
+    const amountWeiBn = new BN(amountWei.toString());
+    const feeWeiBn = new BN(feeWei.toString());
     const state = this.zpStates[tokenAddress];
     const denominator = this.getDenominator(tokenAddress);
-    const amountGwei = amountWei.div(denominator);
-    const feeGwei = feeWei.div(denominator);
+    const amountGwei = amountWeiBn.div(denominator);
+    const feeGwei = feeWeiBn.div(denominator);
 
-    if (amountWei.lt(MIN_TX_AMOUNT)) {
+    if (amountWeiBn.lt(MIN_TX_AMOUNT)) {
       throw new Error(`Withdraw amount is too small (less than ${MIN_TX_AMOUNT.toString()})`);
     }
 
@@ -501,7 +511,9 @@ export class ZeropoolClient {
 
   // Calculate multitransfer configuration for specified token amount and fee per transaction
   // Applicable for transfer and withdrawal transactions. You can prevent state updating with updateState flag
-  public async getTransactionParts(tokenAddress: string, amountWei: BN, feeWei: BN, updateState: boolean = true): Promise<Array<TxAmount>> {
+  public async getTransactionParts(tokenAddress: string, amountWei: Amount, feeWei: Amount, updateState: boolean = true): Promise<Array<TxAmount>> {
+    const amountWeiBn = new BN(amountWei.toString());
+    const feeWeiBn = new BN(feeWei.toString());
     const state = this.zpStates[tokenAddress];
     if (updateState) {
       await this.updateState(tokenAddress);
@@ -512,10 +524,10 @@ export class ZeropoolClient {
     const usableNotes = state.usableNotes();
     const accountBalance = state.accountBalance();
 
-    let remainAmount = amountWei.clone();
+    let remainAmount = amountWeiBn.clone();
 
-    if (accountBalance.gte(remainAmount.add(feeWei))) {
-      result.push({ amount: remainAmount, fee: feeWei, accountLimit: new BN(0) });
+    if (accountBalance.gte(remainAmount.add(feeWeiBn))) {
+      result.push({ amount: remainAmount, fee: feeWeiBn, accountLimit: new BN(0) });
     } else {
       let notesParts: Array<BN> = [];
       let curPart = new BN(0);
@@ -538,17 +550,17 @@ export class ZeropoolClient {
 
       for (let i = 0; i < notesParts.length && remainAmount.gt(new BN(0)); i++) {
         oneTxPart.iadd(notesParts[i]);
-        if (oneTxPart.sub(feeWei).gt(remainAmount)) {
-          oneTxPart = remainAmount.add(feeWei);
+        if (oneTxPart.sub(feeWeiBn).gt(remainAmount)) {
+          oneTxPart = remainAmount.add(feeWeiBn);
         }
 
-        if (oneTxPart.lt(feeWei) || oneTxPart.lt(MIN_TX_AMOUNT)) {
+        if (oneTxPart.lt(feeWeiBn) || oneTxPart.lt(MIN_TX_AMOUNT)) {
           break;
         }
 
-        result.push({ amount: oneTxPart.sub(feeWei), fee: feeWei, accountLimit: new BN(0) });
+        result.push({ amount: oneTxPart.sub(feeWeiBn), fee: feeWeiBn, accountLimit: new BN(0) });
 
-        remainAmount.isub(oneTxPart.sub(feeWei));
+        remainAmount.isub(oneTxPart.sub(feeWeiBn));
         oneTxPart = new BN(0);
       }
 

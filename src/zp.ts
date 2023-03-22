@@ -24,8 +24,8 @@ export class ZeroPoolLibState {
 export type Paths = {
   workerMt: string,
   workerSt: string,
-  wasmMt: string,
-  wasmSt: string,
+  wasmMt?: string,
+  wasmSt?: string,
 };
 
 /**
