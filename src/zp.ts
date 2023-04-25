@@ -49,7 +49,7 @@ export async function init(snarkParams: SnarkConfigParams, paths: Paths): Promis
 
   let worker: any;
   if (isMt) {
-    worker = wrap(new Worker(new URL(paths.workerMt)));
+    worker = wrap(new Worker(paths.workerMt));
   } else {
     worker = wrap(new Worker(paths.workerSt));
   }
