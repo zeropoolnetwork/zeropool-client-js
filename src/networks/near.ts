@@ -1,5 +1,7 @@
 import BN from 'bn.js';
 import bs58 from 'bs58';
+import { providers } from 'near-api-js';
+import type { CodeResult } from 'near-api-js/lib/providers/provider';
 
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
@@ -15,13 +17,15 @@ export class NearNetwork implements NetworkBackend {
 
   private readonly relayerUrl: string;
   private readonly throttle: PromiseThrottle;
+  private readonly rpcUrl: string;
 
-  constructor(relayerUrl: string, requestsPerSecond = THROTTLE_RPS) {
+  constructor(relayerUrl: string, rpcUrl: string, requestsPerSecond = THROTTLE_RPS) {
     this.relayerUrl = relayerUrl;
     this.throttle = new PromiseThrottle({
       requestsPerSecond,
       promiseImplementation: Promise,
     });
+    this.rpcUrl = rpcUrl;
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
@@ -49,7 +53,17 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async getDenominator(contractAddress: string): Promise<BN> {
-    return new BN('1000000000000000'); // FIXME: get from the contract
+    const provider = new providers.JsonRpcProvider({ url: this.rpcUrl });
+
+    const rawResult: CodeResult = await provider.query({
+      request_type: "call_function",
+      account_id: contractAddress,
+      method_name: "denominator",
+      args_base64: "e30=",
+      finality: "optimistic",
+    });
+
+    return new BN(Buffer.from(rawResult.result), 10, 'le');
   }
 
   defaultNetworkName(): string {

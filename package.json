@@ -26,7 +26,7 @@
     "idb": "^7.1.1",
     "libzeropool-rs-wasm-web": "0.9.1",
     "libzeropool-rs-wasm-web-mt": "0.9.1",
-    "near-api-js": "^1.1.0",
+    "near-api-js": "^2.1.4",
     "promise-throttle": "^1.1.2",
     "regenerator-runtime": "^0.13.11",
     "wasm-feature-detect": "^1.5.1",
