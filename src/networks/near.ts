@@ -132,14 +132,28 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async fetchBlockchainTx(hash: string): Promise<IndexerTx> {
-    const url = new URL(`/blockchain/tx/${hash}`, this.relayerUrl);
-    const headers = { 'content-type': 'application/json;charset=UTF-8' };
-    const res = await this.throttle.add(() => fetch(url.toString(), { headers }));
-    if (!res.ok) {
-      throw new Error(`Failed to fetch tx ${hash}: ${res.statusText}`);
+    const provider = new providers.JsonRpcProvider({ url: 'https://archival-rpc.testnet.near.org' });
+    const tx = await provider.txStatus("3GqsVPLd48s612xtH1i2e8ChuVRyhvTEBKwuGrTT73Fp", "zeropool.voidxnull2.testnet");
+    // @ts-ignore block_hash is not present in the type definition even though it is in the response.
+    const block = await provider.block({ blockId: tx.transaction_outcome.block_hash });
+
+    const action = tx.transaction.actions.find(a => !!a['FunctionCall'] && a['FunctionCall'].method_name == 'transact');
+    if (!action) {
+      throw new Error('No transact action found');
     }
 
-    return await res.json();
+    const args = action['FunctionCall'].args;
+
+    return {
+      hash: tx.transaction.hash,
+      block_hash: block.header.hash,
+      block_height: block.header.height,
+      timestamp: Number(block.header.timestamp_nanosec),
+      sender_address: tx.transaction.signer_id,
+      receiver_address: tx.transaction.receiver_id,
+      signature: tx.transaction.signature,
+      calldata: tx.transaction.actions[0].args,
+    }
   }
 
   addressToBuffer(address: string): Uint8Array {
