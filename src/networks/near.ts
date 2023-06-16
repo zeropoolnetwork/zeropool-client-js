@@ -18,14 +18,16 @@ export class NearNetwork implements NetworkBackend {
   private readonly relayerUrl: string;
   private readonly throttle: PromiseThrottle;
   private readonly rpcUrl: string;
+  private readonly relayerAddress: string;
 
-  constructor(relayerUrl: string, rpcUrl: string, requestsPerSecond = THROTTLE_RPS) {
+  constructor(relayerUrl: string, rpcUrl: string, relayerAddress: string, requestsPerSecond = THROTTLE_RPS) {
     this.relayerUrl = relayerUrl;
     this.throttle = new PromiseThrottle({
       requestsPerSecond,
       promiseImplementation: Promise,
     });
     this.rpcUrl = rpcUrl;
+    this.relayerAddress = relayerAddress;
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
@@ -133,7 +135,7 @@ export class NearNetwork implements NetworkBackend {
 
   async fetchBlockchainTx(hash: string): Promise<IndexerTx> {
     const provider = new providers.JsonRpcProvider({ url: 'https://archival-rpc.testnet.near.org' });
-    const tx = await provider.txStatus("3GqsVPLd48s612xtH1i2e8ChuVRyhvTEBKwuGrTT73Fp", "zeropool.voidxnull2.testnet");
+    const tx = await provider.txStatus(hash, this.relayerAddress);
     // @ts-ignore block_hash is not present in the type definition even though it is in the response.
     const block = await provider.block({ blockId: tx.transaction_outcome.block_hash });
 
@@ -152,7 +154,7 @@ export class NearNetwork implements NetworkBackend {
       sender_address: tx.transaction.signer_id,
       receiver_address: tx.transaction.receiver_id,
       signature: tx.transaction.signature,
-      calldata: tx.transaction.actions[0].args,
+      calldata: args,
     }
   }
 
