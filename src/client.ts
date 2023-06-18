@@ -223,7 +223,7 @@ export class ZeropoolClient {
     const state = this.zpStates[tokenAddress];
 
     const INTERVAL_MS = 1000;
-    let hashes: string[];
+    let hashes: string[] = [];
     while (true) {
       const job = await this.relayer.getJob(tokenAddress, jobId);
 
@@ -233,7 +233,12 @@ export class ZeropoolClient {
       } else if (job.state === 'failed') {
         throw new Error(`Transaction [job ${jobId}] failed with reason: '${job.failedReason}'`);
       } else if (job.state === 'completed') {
-        hashes = job.txHash;
+        if (Array.isArray(job.txHash)) {
+          hashes = job.txHash;
+        } else {
+          hashes.push(job.txHash);
+        }
+
         break;
       }
 
@@ -749,41 +754,41 @@ export class ZeropoolClient {
       console.log(`⬇ Fetching transactions between ${startIndex} and ${optimisticIndex}...`);
 
       const numOfTx = Number((optimisticIndex.sub(startIndex)).div(new BN(OUTPLUSONE)));
-      let stateUpdate = this.relayer.fetchTransactionsOptimistic(tokenAddress, startIndex, numOfTx).then(async txs => {
-        console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
+      const txs = await this.relayer.fetchTransactionsOptimistic(tokenAddress, startIndex, numOfTx);
 
-        let indexedTxs: IndexedTx[] = [];
+      console.log(`Getting ${txs.length} transactions from index ${startIndex}`);
 
-        for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
-          const tx = txs[txIdx];
-          // Get the first leaf index in the tree
-          const memoIdx = Number(startIndex) + txIdx * OUTPLUSONE;
+      let indexedTxs: IndexedTx[] = [];
 
-          const { commitment, memo } = this.config.network.disassembleRelayerTx(tx);
+      for (let txIdx = 0; txIdx < txs.length; ++txIdx) {
+        const tx = txs[txIdx];
+        // Get the first leaf index in the tree
+        const memoIdx = Number(startIndex) + txIdx * OUTPLUSONE;
 
-          const indexedTx: IndexedTx = {
-            index: memoIdx,
-            memo: memo,
-            commitment: commitment,
-          }
+        const { commitment, memo } = this.config.network.disassembleRelayerTx(tx);
 
-          // 3. add indexed tx
-          indexedTxs.push(indexedTx);
+        const indexedTx: IndexedTx = {
+          index: memoIdx,
+          memo: memo,
+          commitment: commitment,
         }
 
-        const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
+        // 3. add indexed tx
+        indexedTxs.push(indexedTx);
+      }
 
-        return parseResult.stateUpdate;
-      });
+      const parseResult: ParseTxsResult = await this.worker.parseTxs(this.config.sk, indexedTxs);
 
       const msElapsed = Date.now() - startTime;
       const avgSpeed = msElapsed / numOfTx;
 
       console.log(`Fetch finished in ${msElapsed / 1000} sec | ${numOfTx} tx, avg speed ${avgSpeed.toFixed(1)} ms/tx`);
 
-      return stateUpdate;
+      console.log('Optimistic state:', parseResult.stateUpdate);
+
+      return parseResult.stateUpdate;
     } else {
-      console.log(`Do not need to fetch @${startIndex}`);
+      console.log(`Do not need to fetch @${startIndex}: there is no optimistic state.`);
 
       return { newLeafs: [], newCommitments: [], newAccounts: [], newNotes: [] };
     }

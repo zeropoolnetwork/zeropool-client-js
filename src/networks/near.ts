@@ -134,8 +134,17 @@ export class NearNetwork implements NetworkBackend {
   }
 
   async fetchBlockchainTx(hash: string): Promise<IndexerTx> {
-    const provider = new providers.JsonRpcProvider({ url: 'https://archival-rpc.testnet.near.org' });
-    const tx = await provider.txStatus(hash, this.relayerAddress);
+    const provider = new providers.JsonRpcProvider({ url: this.rpcUrl });
+    const archive = new providers.JsonRpcProvider({ url: 'https://archival-rpc.testnet.near.org' });
+
+    let tx;
+    try {
+      tx = await provider.txStatus(hash, this.relayerAddress);
+    } catch (e) {
+      console.log('Transaction not found in in recent blocks, trying archival node', e);
+      tx = await archive.txStatus(hash, this.relayerAddress);
+    }
+
     // @ts-ignore block_hash is not present in the type definition even though it is in the response.
     const block = await provider.block({ blockId: tx.transaction_outcome.block_hash });
 

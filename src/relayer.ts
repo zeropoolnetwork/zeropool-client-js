@@ -22,7 +22,7 @@ export interface TxToRelayer {
 
 export interface JobInfo {
   state: string;
-  txHash: string[];
+  txHash: string | string[];
   createdOn: BN;
   finishedOn?: BN;
   failedReason?: string;
