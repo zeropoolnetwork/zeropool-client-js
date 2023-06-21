@@ -138,16 +138,18 @@ export class ZeropoolClient {
     let pendingDelta = new BN(0);
     for (const oneRecord of historyRecords) {
       if (oneRecord.pending) {
+        const amount = new BN(oneRecord.amount);
+        const fee = new BN(oneRecord.fee);
         switch (oneRecord.type) {
           case HistoryTransactionType.Deposit:
           case HistoryTransactionType.TransferIn: {
             // we don't spend fee from the shielded balance in case of deposit or input transfer
-            pendingDelta.iadd(oneRecord.amount.mul(denominator));
+            pendingDelta.iadd(amount.mul(denominator));
             break;
           }
           case HistoryTransactionType.Withdrawal:
           case HistoryTransactionType.TransferOut: {
-            pendingDelta.isub(oneRecord.amount.add(oneRecord.fee).mul(denominator));
+            pendingDelta.isub(amount.add(fee).mul(denominator));
             break;
           }
 
@@ -166,17 +168,18 @@ export class ZeropoolClient {
     let pendingDeltaDenominated = new BN(0);
 
     for (const h of pending) {
+      const amount = new BN(h.amount);
       switch (h.type) {
         case HistoryTransactionType.Deposit: {
           if (!this.config.network.approveChangesBalance) {
-            pendingDeltaDenominated.isub(h.amount);
+            pendingDeltaDenominated.isub(amount);
           }
 
           break;
         }
         case HistoryTransactionType.Withdrawal: {
           if (h.to.toLowerCase() === address.toLowerCase()) {
-            pendingDeltaDenominated.iadd(h.amount);
+            pendingDeltaDenominated.iadd(amount);
           }
           break;
         }

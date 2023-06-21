@@ -29,30 +29,30 @@ export class HistoryRecord {
     public timestamp: number,
     public from: string,
     public to: string,
-    public amount: BN,
-    public fee: BN,
+    public amount: string,
+    public fee: string,
     public txHash: string,
     public pending: boolean,
   ) { }
 
   public static deposit(from: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
-    return new HistoryRecord(HistoryTransactionType.Deposit, ts, from, "", amount, fee, txHash, pending);
+    return new HistoryRecord(HistoryTransactionType.Deposit, ts, from, "", amount.toString(), fee.toString(), txHash, pending);
   }
 
   public static transferIn(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
-    return new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", to, amount, fee, txHash, pending);
+    return new HistoryRecord(HistoryTransactionType.TransferIn, ts, "", to, amount.toString(), fee.toString(), txHash, pending);
   }
 
   public static transferOut(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
-    return new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", to, amount, fee, txHash, pending);
+    return new HistoryRecord(HistoryTransactionType.TransferOut, ts, "", to, amount.toString(), fee.toString(), txHash, pending);
   }
 
   public static transferLoopback(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
-    return new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, "", to, amount, fee, txHash, pending);
+    return new HistoryRecord(HistoryTransactionType.TransferLoopback, ts, "", to, amount.toString(), fee.toString(), txHash, pending);
   }
 
   public static withdraw(to: string, amount: BN, fee: BN, ts: number, txHash: string, pending: boolean): HistoryRecord {
-    return new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", to, amount, fee, txHash, pending);
+    return new HistoryRecord(HistoryTransactionType.Withdrawal, ts, "", to, amount.toString(), fee.toString(), txHash, pending);
   }
 
   public toJson(): string {
