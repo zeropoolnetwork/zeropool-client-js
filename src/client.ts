@@ -191,6 +191,10 @@ export class ZeropoolClient {
     return pendingDeltaDenominated.mul(this.getDenominator(tokenAddress));
   }
 
+  public getState(tokenAddress: string): ZeroPoolState {
+    return this.zpStates[tokenAddress];
+  }
+
   // Get history records
   public async getAllHistory(tokenAddress: string, updateState: boolean = true): Promise<HistoryRecord[]> {
     if (updateState) {
