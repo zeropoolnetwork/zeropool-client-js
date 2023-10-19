@@ -27,11 +27,7 @@ export class WavesNetwork implements NetworkBackend {
     });
   }
 
-  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
-    if (depositId === null) {
-      throw new Error('depositId is null');
-    }
-
+  async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, _depositId: number | null): Promise<string> {
     const dataWriter = new BinaryWriter('be');
     dataWriter.writeU256(nullifier);
     dataWriter.writeString(fromAddress);
