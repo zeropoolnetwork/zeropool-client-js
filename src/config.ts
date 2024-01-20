@@ -1,19 +1,21 @@
-import type { VK } from 'libzeropool-rs-wasm-web';
-
 export interface Config {
   snarkParams: SnarkConfigParams;
   wasmPath: string;
   workerPath: string;
 }
 
-export interface SnarkConfigParams {
+export interface Groth16Params {
+  plonk: false;
   transferParamsUrl: string;
-  transferVkUrl: string;
 }
 
-export interface SnarkParams {
-  transferVk?: VK;
+export interface PlonkParams {
+  plonk: true;
+  plonkParamsUrl: string;
+  transferPkUrl: string;
 }
+
+export type SnarkConfigParams = Groth16Params | PlonkParams;
 
 export type Tokens = {
   [address: string]: Token;

@@ -1,7 +1,7 @@
 import type { Output, Proof, DecryptedMemo, ParseTxsResult, StateUpdate, IndexedTx } from 'libzeropool-rs-wasm-web';
 import BN from 'bn.js';
 
-import { SnarkParams, Tokens } from './config';
+import { Tokens } from './config';
 import { ZeroPoolState } from './state';
 import { TxType } from './tx';
 import { NetworkBackend } from './networks/network';
@@ -35,8 +35,6 @@ export interface ClientConfig {
   sk: Uint8Array;
   /** A map of supported tokens (token address => token params). */
   tokens: Tokens;
-  /** Loaded zkSNARK paramaterers. */
-  snarkParams: SnarkParams;
   /** A worker instance acquired through init() function of this package. */
   worker: any;
   /** The name of the network is only used for storage. */
@@ -47,7 +45,6 @@ export interface ClientConfig {
 export class ZeropoolClient {
   private zpStates: { [tokenAddress: string]: ZeroPoolState };
   private worker: any;
-  private snarkParams: SnarkParams;
   private tokens: Tokens;
   private config: ClientConfig;
   private relayerFee: BN | undefined; // in wei, do not use directly, use getRelayerFee method instead
@@ -58,7 +55,6 @@ export class ZeropoolClient {
     const client = new ZeropoolClient();
     client.zpStates = {};
     client.worker = config.worker;
-    client.snarkParams = config.snarkParams;
     client.tokens = config.tokens;
     client.config = config;
     client.relayer = new RelayerAPI(config.tokens);
@@ -341,11 +337,6 @@ export class ZeropoolClient {
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
 
-    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
-
     let tx: TxToRelayer = { txType: TxType.Deposit, memo: txData.memo, proof: txProof, extraData };
     const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
 
@@ -393,11 +384,6 @@ export class ZeropoolClient {
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
 
     let tx = { txType: TxType.Transfer, memo: txData.memo, proof: txProof };
     const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
@@ -450,11 +436,6 @@ export class ZeropoolClient {
     const txProof = await this.worker.proveTx(txData.public, txData.secret);
     const proofTime = (Date.now() - startProofDate) / 1000;
     console.log(`Proof calculation took ${proofTime.toFixed(1)} sec`);
-
-    const txValid = zp.Proof.verify(this.snarkParams.transferVk!, txProof.inputs, txProof.proof);
-    if (!txValid) {
-      throw new Error('invalid tx proof');
-    }
 
     let tx = { txType: TxType.Withdraw, memo: txData.memo, proof: txProof };
     const jobId = await this.relayer.sendTransactions(tokenAddress, [tx]);
