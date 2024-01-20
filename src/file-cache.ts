@@ -33,8 +33,19 @@ export class FileCache {
   }
 
   public async cache(path: string): Promise<ArrayBuffer> {
-    const data = await (await fetch(path)).arrayBuffer();
+    const res = await fetch(path);
+
+    if (!res.ok) {
+      throw new Error(`Failed to fetch file ${path}: ${res.statusText}`);
+    }
+
+    if (res.headers.get('content-type') === 'text/html') {
+      throw new Error(`File ${path} is not a binary file`)
+    }
+
+    const data = await res.arrayBuffer();
     await this.db.put(STORE_NAME, data, path);
+
     return data;
   }
 
