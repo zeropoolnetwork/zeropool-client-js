@@ -12,7 +12,7 @@ export interface Groth16Params {
 export interface PlonkParams {
   plonk: true;
   plonkParamsUrl: string;
-  transferPkUrl: string;
+  transferPkUrl?: string;
 }
 
 export type SnarkConfigParams = Groth16Params | PlonkParams;

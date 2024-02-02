@@ -44,7 +44,12 @@ export class FileCache {
     }
 
     const data = await res.arrayBuffer();
-    await this.db.put(STORE_NAME, data, path);
+
+    try {
+      await this.db.put(STORE_NAME, data, path);
+    } catch (e) {
+      console.error(`Failed to cache ${path}: ${e}`);
+    }
 
     return data;
   }

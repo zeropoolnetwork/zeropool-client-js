@@ -6,11 +6,28 @@ import { TxType } from './tx';
 
 const DEFAULT_TX_FEE = new BN(0);
 
-export interface RelayerInfo {
+export interface RelayerInfoV2 {
+  apiVersion?: RelayerApiVersion.V2,
   root: string;
   optimisticRoot: string;
   deltaIndex: string;
   optimisticDeltaIndex: string;
+}
+
+export interface RelayerInfoV3 {
+  apiVersion: RelayerApiVersion.V3,
+  backend: string,
+  root: string,
+  optimisticRoot: string,
+  poolIndex: string,
+  optimisticIndex: string,
+}
+
+export type RelayerInfo = RelayerInfoV2 | RelayerInfoV3;
+
+export enum RelayerApiVersion {
+  V2 = '2',
+  V3 = '3',
 }
 
 export interface TxToRelayer {
@@ -29,7 +46,22 @@ export interface JobInfo {
 }
 
 export class RelayerAPI {
+  private version: RelayerApiVersion = RelayerApiVersion.V2;
+
   constructor(private tokens: Tokens) { }
+
+  public static async create(tokens: Tokens): Promise<RelayerAPI> {
+    const self = new RelayerAPI(tokens);
+    const info = await self.info(Object.keys(tokens)[0]);
+
+    if (info.apiVersion === RelayerApiVersion.V3) {
+      self.version = RelayerApiVersion.V3;
+    }
+
+    console.log('Relayer API initialized', info);
+
+    return self;
+  }
 
   public async fetchTransactionsOptimistic(tokenAddress: string, offset: BN, limit: number = 100): Promise<string[]> {
     const url = new URL(`/transactions/v2`, this.tokens[tokenAddress].relayerUrl);

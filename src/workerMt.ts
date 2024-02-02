@@ -21,14 +21,14 @@ const obj = {
       await initPlonk(wasmPath);
       Params = ParamsPlonk;
       Proof = ProofPlonk;
-      txParser = TxParserPlonk;
+      TxParser = TxParserPlonk;
       await initThreadPoolPlonk(navigator.hardwareConcurrency);
     } else {
       console.info('Initializing web worker for Groth16...');
       await initGroth16(wasmPath);
       Params = ParamsGroth16;
       Proof = ProofGroth16;
-      txParser = TxParserGroth16;
+      TxParser = TxParserGroth16;
       await initThreadPoolGroth16(navigator.hardwareConcurrency);
     }
 
@@ -37,8 +37,13 @@ const obj = {
 
     if (config.plonk) {
       const plonkParamsData = await cache.getOrCache(config.plonkParamsUrl);
-      const transferPkData = await cache.getOrCache(config.transferPkUrl);
-      txParams = Params.fromBinary(new Uint8Array(plonkParamsData!), new Uint8Array(transferPkData!));
+
+      if (config.transferPkUrl) {
+        const transferPkData = await cache.getOrCache(config.transferPkUrl);
+        txParams = Params.fromBinaryWithPk(new Uint8Array(plonkParamsData!), new Uint8Array(transferPkData!));
+      } else {
+        txParams = Params.fromBinary(new Uint8Array(plonkParamsData!));
+      }
     } else {
       const txParamsData = await cache.getOrCache(config.transferParamsUrl);
       txParams = Params.fromBinaryExtended(new Uint8Array(txParamsData!), false, false);

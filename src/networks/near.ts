@@ -6,28 +6,22 @@ import type { CodeResult } from 'near-api-js/lib/providers/provider';
 import { NetworkBackend, RelayerTx, TxData } from './network';
 import { TxType } from '../tx';
 import { BinaryWriter, bufToHex, toCompactSignature, truncateHexPrefix } from '../utils';
-import PromiseThrottle from 'promise-throttle';
 import { BinaryReader } from '../utils';
 import { zp } from '../zp';
-
-const THROTTLE_RPS = 4;
 
 export class NearNetwork implements NetworkBackend {
   approveChangesBalance: boolean = true;
 
-  private readonly relayerUrl: string;
-  private readonly throttle: PromiseThrottle;
+  // private readonly relayerUrl: string;
   private readonly rpcUrl: string;
   private readonly relayerAddress: string;
+  private readonly plonk: boolean;
 
-  constructor(relayerUrl: string, rpcUrl: string, relayerAddress: string, requestsPerSecond = THROTTLE_RPS) {
-    this.relayerUrl = relayerUrl;
-    this.throttle = new PromiseThrottle({
-      requestsPerSecond,
-      promiseImplementation: Promise,
-    });
+  constructor(relayerUrl: string, rpcUrl: string, relayerAddress: string, plonk: boolean = false) {
+    // this.relayerUrl = relayerUrl;
     this.rpcUrl = rpcUrl;
     this.relayerAddress = relayerAddress;
+    this.plonk = plonk;
   }
 
   async signNullifier(signFn: (data: string) => Promise<string>, nullifier: BN, fromAddress: string, depositId: number | null): Promise<string> {
@@ -82,7 +76,7 @@ export class NearNetwork implements NetworkBackend {
 
     const mined = tx.slice(0, 1) == '1';
     const commitment = tx.slice(1, HASH_OFFSET);
-    const hashHex = tx.slice(HASH_OFFSET, MEMO_OFFSET); // hash = 44 or 43 chars
+    const hashHex = tx.slice(HASH_OFFSET, MEMO_OFFSET);
     const memo = tx.slice(MEMO_OFFSET);
 
     const hash = bs58.encode(Buffer.from(hashHex, 'hex'));
@@ -104,7 +98,7 @@ export class NearNetwork implements NetworkBackend {
       return null;
     }
 
-    const calldata = deserializePoolData(Buffer.from(tx.calldata, 'base64'));
+    const calldata = deserializePoolData(Buffer.from(tx.calldata, 'base64'), this.plonk);
     let txType
     switch (calldata.txType) {
       case 0: txType = TxType.Deposit; break;
@@ -195,9 +189,9 @@ class PoolCalldata {
   outCommit!: BN;
   tokenId!: string;
   delta!: BN;
-  transactProof!: BN[];
+  transactProof!: BN[] | Uint8Array;
   rootAfter!: BN;
-  treeProof!: BN[];
+  treeProof!: BN[] | Uint8Array;
   txType!: number;
   memo!: Buffer;
   extraData?: Buffer;
@@ -217,16 +211,26 @@ class PoolCalldata {
   }
 }
 
-function deserializePoolData(data: Buffer): PoolCalldata {
+function deserializePoolData(data: Buffer, plonk: boolean): PoolCalldata {
   const reader = new BinaryReader(data);
 
   const nullifier = reader.readU256();
   const outCommit = reader.readU256();
   const tokenId = reader.readString();
   const delta = reader.readU256();
-  const transactProof = reader.readFixedArray(8, () => reader.readU256());
+  let transactProof;
+  if (plonk) {
+    transactProof = reader.readDynamicBuffer();
+  } else {
+    transactProof = reader.readFixedArray(8, () => reader.readU256());
+  }
   const rootAfter = reader.readU256();
-  const treeProof = reader.readFixedArray(8, () => reader.readU256());
+  let treeProof;
+  if (plonk) {
+    treeProof = reader.readDynamicBuffer();
+  } else {
+    treeProof = reader.readFixedArray(8, () => reader.readU256());
+  }
   const txType = reader.readU8();
   const memo = reader.readDynamicBuffer();
   const extraData = reader.readBufferUntilEnd();

@@ -8,7 +8,7 @@ import { NetworkBackend } from './networks/network';
 import { CONSTANTS } from './constants';
 import { HistoryRecord, HistoryTransactionType } from './history';
 import { zp } from './zp';
-import { RelayerAPI, TxToRelayer } from './relayer';
+import { RelayerAPI, RelayerApiVersion, TxToRelayer } from './relayer';
 
 const MIN_TX_AMOUNT = new BN(10000000);
 const BATCH_SIZE = 100;
@@ -57,7 +57,7 @@ export class ZeropoolClient {
     client.worker = config.worker;
     client.tokens = config.tokens;
     client.config = config;
-    client.relayer = new RelayerAPI(config.tokens);
+    client.relayer = await RelayerAPI.create(config.tokens);
     client.relayerFee = undefined;
 
     let networkName = config.networkName;
@@ -602,8 +602,15 @@ export class ZeropoolClient {
 
     const startIndex = Number(zpState.account.nextTreeIndex());
     const stateInfo = await this.relayer.info(tokenAddress);
-    const nextIndex = Number(stateInfo.deltaIndex);
-    const optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
+
+    let nextIndex, optimisticIndex;
+    if (stateInfo.apiVersion === RelayerApiVersion.V3) {
+      nextIndex = Number(stateInfo.poolIndex);
+      optimisticIndex = Number(stateInfo.optimisticIndex);
+    } else {
+      nextIndex = Number(stateInfo.deltaIndex);
+      optimisticIndex = Number(stateInfo.optimisticDeltaIndex);
+    }
 
     if (optimisticIndex <= startIndex) {
       await zpState.history.setLastMinedTxIndex(nextIndex - OUTPLUSONE);
@@ -734,7 +741,12 @@ export class ZeropoolClient {
     const zpState = this.zpStates[tokenAddress];
     const startIndex = new BN(zpState.account.nextTreeIndex().toString());
     const stateInfo = await this.relayer.info(tokenAddress);
-    const optimisticIndex = new BN(stateInfo.optimisticDeltaIndex);
+    let optimisticIndex;
+    if (stateInfo.apiVersion == RelayerApiVersion.V3) {
+      optimisticIndex = new BN(stateInfo.optimisticIndex);
+    } else {
+      optimisticIndex = new BN(stateInfo.optimisticDeltaIndex);
+    }
 
     if (optimisticIndex.gt(startIndex)) {
       const startTime = Date.now();

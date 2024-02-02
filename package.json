@@ -24,6 +24,7 @@
     "ethereumjs-util": "^7.1.5",
     "hdwallet-babyjub": "0.0.2",
     "idb": "^7.1.1",
+    "libzeropool-rs-wasm-plonk-web-mt": "file:../libzeropool-rs/libzeropool-rs-wasm/target/plonk-web-mt",
     "libzeropool-rs-wasm-web": "0.9.2",
     "libzeropool-rs-wasm-web-mt": "0.9.2",
     "near-api-js": "^2.1.4",
